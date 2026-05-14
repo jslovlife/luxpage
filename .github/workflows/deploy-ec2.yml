@@ -1,0 +1,83 @@
+name: Deploy to EC2 (Docker + ECR)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ap-southeast-1
+      ECR_REPOSITORY: member-management-ui
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # NOTE: For production, prefer GitHub OIDC role-to-assume instead of long-lived access keys.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" -t "$REGISTRY/$ECR_REPOSITORY:latest" .
+          docker push "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker push "$REGISTRY/$ECR_REPOSITORY:latest"
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+
+      - name: Add known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Upload docker-compose.prod.yml
+        run: |
+          scp -o StrictHostKeyChecking=yes docker-compose.prod.yml "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/docker-compose.prod.yml"
+
+      - name: Deploy on EC2
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+        run: |
+          ECR_PASSWORD="$(aws ecr get-login-password --region ${AWS_REGION})"
+          ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "AWS_REGION=${AWS_REGION} AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID} ECR_REPOSITORY=${ECR_REPOSITORY} SESSION_SECRET=${SESSION_SECRET} ECR_PASSWORD=${ECR_PASSWORD} bash -s" <<'SSH'
+            set -euo pipefail
+            sudo mkdir -p /opt/member-management-ui/data/demo-uploads
+            sudo touch /opt/member-management-ui/data/.demo-store.json
+            sudo chmod 666 /opt/member-management-ui/data/.demo-store.json
+            sudo mkdir -p /opt/member-management-ui
+            sudo mv -f ~/docker-compose.prod.yml /opt/member-management-ui/docker-compose.prod.yml
+
+            # Create/overwrite .env.prod
+            cat > /opt/member-management-ui/.env.prod <<EOF
+AWS_REGION=${AWS_REGION}
+AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID}
+ECR_REPOSITORY=${ECR_REPOSITORY}
+SESSION_SECRET=${SESSION_SECRET}
+EOF
+
+            # Docker login to ECR (no AWS creds required on EC2)
+            echo "${ECR_PASSWORD}" | sudo docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+
+            cd /opt/member-management-ui
+            sudo docker compose --env-file .env.prod -f docker-compose.prod.yml pull
+            sudo docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
+            sudo docker image prune -f
+          SSH
