@@ -127,7 +127,7 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --comment "Deploy ${NAME_TAG} via SSM" \
             --parameters commands="[
-              \"set -euo pipefail\",
+              \"set -eu\",
               \"sudo mkdir -p /opt/member-management-ui/data/demo-uploads\",
               \"sudo touch /opt/member-management-ui/data/.demo-store.json\",
               \"sudo chmod 666 /opt/member-management-ui/data/.demo-store.json\",
