@@ -1,13 +1,22 @@
 #!/bin/bash
 set -euo pipefail
+set -x
 
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update -y
 
-# Install docker + compose + awscli
-apt-get install -y docker.io docker-compose-v2 awscli snapd curl ca-certificates
+# Install docker + compose + snapd (Ubuntu 24.04 may not ship awscli in apt by default)
+apt-get install -y docker.io docker-compose-v2 snapd curl ca-certificates
 systemctl enable --now docker
+
+# Ensure snapd is ready
+snap wait system seed.loaded || true
+
+# Install AWS CLI (snap) for ECR login in deployment scripts
+if ! snap list aws-cli >/dev/null 2>&1; then
+  snap install aws-cli --classic
+fi
 
 # Install SSM agent (snap) for SSM deployment (no SSH required)
 if ! snap list amazon-ssm-agent >/dev/null 2>&1; then
@@ -30,4 +39,3 @@ if [ ! -f /swapfile ]; then
   swapon /swapfile || true
   echo '/swapfile none swap sw 0 0' >> /etc/fstab || true
 fi
-

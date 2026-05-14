@@ -63,7 +63,9 @@ resource "aws_instance" "poc" {
   user_data = file("${path.module}/user_data.sh")
 
   tags = {
-    Name = var.name_tag
+    Name      = var.name_tag
+    ManagedBy = "terraform"
+    Project   = "luxpage"
   }
 }
 
@@ -147,4 +149,3 @@ resource "aws_lambda_permission" "allow_events" {
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.schedule.arn
 }
-

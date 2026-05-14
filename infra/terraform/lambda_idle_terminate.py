@@ -48,6 +48,7 @@ def handler(event, context):
     resp = ec2.describe_instances(
         Filters=[
             {"Name": "tag:Name", "Values": [NAME_TAG]},
+            {"Name": "tag:ManagedBy", "Values": ["terraform"]},
             {"Name": "instance-state-name", "Values": ["running"]},
         ]
     )
@@ -58,6 +59,7 @@ def handler(event, context):
             targets.append(inst["InstanceId"])
 
     if not targets:
+        print({"ok": True, "message": "no running instances"})
         return {"ok": True, "message": "no running instances"}
 
     terminated = []
@@ -65,9 +67,11 @@ def handler(event, context):
         cpu = metric_avg(instance_id, "CPUUtilization")
         net = metric_sum(instance_id, "NetworkIn") + metric_sum(instance_id, "NetworkOut")
         idle = (cpu < CPU_TH) and (net < NET_TH)
+        print({"instance_id": instance_id, "cpu_avg": cpu, "net_sum": net, "idle": idle})
         if idle:
             ec2.terminate_instances(InstanceIds=[instance_id])
             terminated.append({"instance_id": instance_id, "cpu": cpu, "net": net})
 
-    return {"ok": True, "terminated": terminated}
-
+    result = {"ok": True, "terminated": terminated}
+    print(result)
+    return result

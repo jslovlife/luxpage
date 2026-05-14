@@ -36,16 +36,17 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Ensure Terraform state bucket exists
+      - name: Verify Terraform state bucket access
         run: |
-          if aws s3api head-bucket --bucket "${TF_STATE_BUCKET}" 2>/dev/null; then
-            echo "State bucket exists: ${TF_STATE_BUCKET}"
+          set -euo pipefail
+          if aws s3api head-bucket --bucket "${TF_STATE_BUCKET}" >/dev/null 2>&1; then
+            echo "State bucket accessible: ${TF_STATE_BUCKET}"
           else
-            echo "Creating state bucket: ${TF_STATE_BUCKET}"
-            aws s3api create-bucket \
-              --bucket "${TF_STATE_BUCKET}" \
-              --region "${AWS_REGION}" \
-              --create-bucket-configuration LocationConstraint="${AWS_REGION}"
+            echo "Cannot access state bucket: ${TF_STATE_BUCKET}"
+            echo "Fix: ensure bucket exists AND github-deploy has permissions:"
+            echo "  s3:ListBucket, s3:GetBucketLocation on the bucket"
+            echo "  s3:GetObject, s3:PutObject on bucket/*"
+            exit 1
           fi
 
       - name: Setup Terraform
@@ -68,6 +69,13 @@ jobs:
         run: |
           echo "instance_id=$(terraform -chdir=${TF_WORKDIR} output -raw instance_id)" >> $GITHUB_OUTPUT
           echo "public_ip=$(terraform -chdir=${TF_WORKDIR} output -raw public_ip)" >> $GITHUB_OUTPUT
+
+      - name: Wait for EC2 instance to be ready
+        env:
+          INSTANCE_ID: ${{ steps.tfout.outputs.instance_id }}
+        run: |
+          set -euo pipefail
+          aws ec2 wait instance-status-ok --instance-ids "${INSTANCE_ID}"
 
       - name: Update DuckDNS -> EC2 public IP
         env:
@@ -114,8 +122,7 @@ jobs:
         run: |
           # Download compose from GitHub (public). If you make repo private, switch to S3.
           COMPOSE_URL="https://raw.githubusercontent.com/jslovlife/luxpage/main/${APP_DIR}/docker-compose.prod.yml"
-
-          aws ssm send-command \
+          COMMAND_ID="$(aws ssm send-command \
             --instance-ids "${INSTANCE_ID}" \
             --document-name "AWS-RunShellScript" \
             --comment "Deploy ${NAME_TAG} via SSM" \
@@ -134,10 +141,38 @@ jobs:
               \"sudo docker image prune -f\"
             ]" \
             --query "Command.CommandId" \
-            --output text
+            --output text)"
+
+          echo "SSM CommandId: ${COMMAND_ID}"
+
+          # Wait for SSM command completion and print output on failure.
+          for i in {1..60}; do
+            STATUS="$(aws ssm get-command-invocation --command-id "${COMMAND_ID}" --instance-id "${INSTANCE_ID}" --query 'Status' --output text 2>/dev/null || true)"
+            echo "SSM status: ${STATUS}"
+            case "${STATUS}" in
+              Success)
+                exit 0
+                ;;
+              Failed|TimedOut|Cancelled)
+                echo "--- STDOUT ---"
+                aws ssm get-command-invocation --command-id "${COMMAND_ID}" --instance-id "${INSTANCE_ID}" --query 'StandardOutputContent' --output text || true
+                echo "--- STDERR ---"
+                aws ssm get-command-invocation --command-id "${COMMAND_ID}" --instance-id "${INSTANCE_ID}" --query 'StandardErrorContent' --output text || true
+                exit 1
+                ;;
+              InProgress|Pending|Delayed)
+                sleep 10
+                ;;
+              *)
+                sleep 10
+                ;;
+            esac
+          done
+
+          echo "SSM command did not finish in time."
+          exit 1
 
       - name: Output URLs
         run: |
           echo "EC2 IP: http://${{ steps.tfout.outputs.public_ip }}/"
           echo "DuckDNS: http://${DUCKDNS_SUBDOMAIN}.duckdns.org/"
-
