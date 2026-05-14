@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "remix dev",
     "build": "remix build",
-    "start": "remix-serve ./build/server/index.js",
+    "start": "remix-serve ./build/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -28,4 +28,3 @@
     "typescript": "^5.6.3"
   }
 }
-
