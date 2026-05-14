@@ -1,0 +1,9 @@
+node_modules
+build
+.cache
+.env
+.env.*
+.DS_Store
+.demo-store.json
+public/demo-uploads/*
+!public/demo-uploads/.gitkeep

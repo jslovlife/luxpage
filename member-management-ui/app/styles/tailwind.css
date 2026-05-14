@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Theme tokens (CSS variables)
+ * - Default: Admin (professional, neutral)
+ * - Member app: Warm lifestyle (softer, consumer-facing)
+ */
+:root {
+  --bg: #f6f7fb;
+  --surface: #ffffff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+}
+
+[data-theme="admin"] {
+  --bg: #f6f7fb;
+  --surface: #ffffff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+}
+
+[data-theme="member"] {
+  --bg: #fff7f2;
+  --surface: #ffffff;
+  --text: #1f1a17;
+  --muted: #6b5e57;
+  --border: #e9d8cf;
+  --primary: #c45a3c;
+  --primary-foreground: #ffffff;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+html {
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  margin: 0;
+}

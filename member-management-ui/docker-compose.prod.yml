@@ -1,0 +1,16 @@
+services:
+  web:
+    image: "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:latest"
+    ports:
+      - "80:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - SESSION_SECRET=${SESSION_SECRET}
+    volumes:
+      # PoC persistence:
+      # 1) demo data store file
+      # 2) uploaded photos
+      - /opt/member-management-ui/data/.demo-store.json:/app/.demo-store.json
+      - /opt/member-management-ui/data/demo-uploads:/app/public/demo-uploads
+    restart: unless-stopped
