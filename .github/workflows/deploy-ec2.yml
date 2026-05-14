@@ -55,7 +55,7 @@ jobs:
 
       - name: Upload docker-compose.prod.yml
         run: |
-          scp -o StrictHostKeyChecking=yes docker-compose.prod.yml "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/docker-compose.prod.yml"
+          scp -o StrictHostKeyChecking=no docker-compose.prod.yml "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/docker-compose.prod.yml"
 
       - name: Deploy on EC2
         env:
@@ -63,7 +63,7 @@ jobs:
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
         run: |
           ECR_PASSWORD="$(aws ecr get-login-password --region ${AWS_REGION})"
-          ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "AWS_REGION=${AWS_REGION} AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID} ECR_REPOSITORY=${ECR_REPOSITORY} SESSION_SECRET=${SESSION_SECRET} ECR_PASSWORD=${ECR_PASSWORD} bash -s" <<'SSH'
+          ssh -o StrictHostKeyChecking=no "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "AWS_REGION=${AWS_REGION} AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID} ECR_REPOSITORY=${ECR_REPOSITORY} SESSION_SECRET=${SESSION_SECRET} ECR_PASSWORD=${ECR_PASSWORD} bash -s" <<'SSH'
             set -euo pipefail
 
             sudo mkdir -p /opt/member-management-ui/data/demo-uploads
