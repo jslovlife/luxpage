@@ -9,14 +9,20 @@ permissions:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+
+    # monorepo: Remix app lives under member-management-ui/
+    defaults:
+      run:
+        working-directory: member-management-ui
+
     env:
       AWS_REGION: ap-southeast-1
       ECR_REPOSITORY: member-management-ui
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # NOTE: For production, prefer GitHub OIDC role-to-assume instead of long-lived access keys.
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -59,18 +65,20 @@ jobs:
           ECR_PASSWORD="$(aws ecr get-login-password --region ${AWS_REGION})"
           ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "AWS_REGION=${AWS_REGION} AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID} ECR_REPOSITORY=${ECR_REPOSITORY} SESSION_SECRET=${SESSION_SECRET} ECR_PASSWORD=${ECR_PASSWORD} bash -s" <<'SSH'
             set -euo pipefail
+
             sudo mkdir -p /opt/member-management-ui/data/demo-uploads
             sudo touch /opt/member-management-ui/data/.demo-store.json
             sudo chmod 666 /opt/member-management-ui/data/.demo-store.json
+
             sudo mkdir -p /opt/member-management-ui
             sudo mv -f ~/docker-compose.prod.yml /opt/member-management-ui/docker-compose.prod.yml
 
-            # Create/overwrite .env.prod
+            # Write env file
             printf "AWS_REGION=%s\nAWS_ACCOUNT_ID=%s\nECR_REPOSITORY=%s\nSESSION_SECRET=%s\n" \
               "${AWS_REGION}" "${AWS_ACCOUNT_ID}" "${ECR_REPOSITORY}" "${SESSION_SECRET}" \
               | sudo tee /opt/member-management-ui/.env.prod >/dev/null
 
-            # Docker login to ECR (no AWS creds required on EC2)
+            # Docker login to ECR
             echo "${ECR_PASSWORD}" | sudo docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 
             cd /opt/member-management-ui
