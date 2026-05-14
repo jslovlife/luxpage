@@ -1,0 +1,143 @@
+name: Provision EC2 + Deploy (Terraform + ECR + SSM)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  provision-and-deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ap-southeast-1
+      AWS_ACCOUNT_ID: "231037026600"
+      ECR_REPOSITORY: member-management-ui
+      NAME_TAG: luxpage-poc
+
+      # monorepo
+      APP_DIR: member-management-ui
+      TF_WORKDIR: infra/terraform
+
+      # DuckDNS
+      DUCKDNS_SUBDOMAIN: luxpagepoc
+
+      # Terraform state bucket (created automatically if missing)
+      TF_STATE_BUCKET: luxpage-terraform-state-231037026600
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ensure Terraform state bucket exists
+        run: |
+          if aws s3api head-bucket --bucket "${TF_STATE_BUCKET}" 2>/dev/null; then
+            echo "State bucket exists: ${TF_STATE_BUCKET}"
+          else
+            echo "Creating state bucket: ${TF_STATE_BUCKET}"
+            aws s3api create-bucket \
+              --bucket "${TF_STATE_BUCKET}" \
+              --region "${AWS_REGION}" \
+              --create-bucket-configuration LocationConstraint="${AWS_REGION}"
+          fi
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        run: terraform -chdir=${TF_WORKDIR} init
+
+      - name: Terraform apply (create EC2 + idle-terminate)
+        run: |
+          terraform -chdir=${TF_WORKDIR} apply -auto-approve \
+            -var "region=${AWS_REGION}" \
+            -var "instance_type=t3.micro" \
+            -var "name_tag=${NAME_TAG}" \
+            -var "key_name=luxpage-key" \
+            -var "security_group_id=sg-038fefd5de9c11e6e"
+
+      - name: Read Terraform outputs
+        id: tfout
+        run: |
+          echo "instance_id=$(terraform -chdir=${TF_WORKDIR} output -raw instance_id)" >> $GITHUB_OUTPUT
+          echo "public_ip=$(terraform -chdir=${TF_WORKDIR} output -raw public_ip)" >> $GITHUB_OUTPUT
+
+      - name: Update DuckDNS -> EC2 public IP
+        env:
+          DUCKDNS_TOKEN: ${{ secrets.DUCKDNS_TOKEN }}
+          IP: ${{ steps.tfout.outputs.public_ip }}
+        run: |
+          curl -fsSL "https://www.duckdns.org/update?domains=${DUCKDNS_SUBDOMAIN}&token=${DUCKDNS_TOKEN}&ip=${IP}"
+          echo "DuckDNS updated: http://${DUCKDNS_SUBDOMAIN}.duckdns.org/"
+
+      - name: Wait for SSM to be online
+        env:
+          INSTANCE_ID: ${{ steps.tfout.outputs.instance_id }}
+        run: |
+          echo "Waiting for SSM agent to register: ${INSTANCE_ID}"
+          for i in {1..40}; do
+            COUNT="$(aws ssm describe-instance-information --filters Key=InstanceIds,Values=${INSTANCE_ID} --query 'length(InstanceInformationList)' --output text || true)"
+            if [ "${COUNT}" != "0" ]; then
+              echo "SSM online"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "SSM did not become ready in time"
+          exit 1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        working-directory: ${{ env.APP_DIR }}
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" -t "$REGISTRY/$ECR_REPOSITORY:latest" .
+          docker push "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker push "$REGISTRY/$ECR_REPOSITORY:latest"
+
+      - name: Deploy on EC2 via SSM (no SSH)
+        env:
+          INSTANCE_ID: ${{ steps.tfout.outputs.instance_id }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+        run: |
+          # Download compose from GitHub (public). If you make repo private, switch to S3.
+          COMPOSE_URL="https://raw.githubusercontent.com/jslovlife/luxpage/main/${APP_DIR}/docker-compose.prod.yml"
+
+          aws ssm send-command \
+            --instance-ids "${INSTANCE_ID}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy ${NAME_TAG} via SSM" \
+            --parameters commands="[
+              \"set -euo pipefail\",
+              \"sudo mkdir -p /opt/member-management-ui/data/demo-uploads\",
+              \"sudo touch /opt/member-management-ui/data/.demo-store.json\",
+              \"sudo chmod 666 /opt/member-management-ui/data/.demo-store.json\",
+              \"sudo mkdir -p /opt/member-management-ui\",
+              \"printf 'AWS_REGION=%s\\\\nAWS_ACCOUNT_ID=%s\\\\nECR_REPOSITORY=%s\\\\nSESSION_SECRET=%s\\\\nCOOKIE_SECURE=%s\\\\n' '${AWS_REGION}' '${AWS_ACCOUNT_ID}' '${ECR_REPOSITORY}' '${SESSION_SECRET}' 'false' | sudo tee /opt/member-management-ui/.env.prod >/dev/null\",
+              \"curl -fsSL '${COMPOSE_URL}' | sudo tee /opt/member-management-ui/docker-compose.prod.yml >/dev/null\",
+              \"sudo aws ecr get-login-password --region ${AWS_REGION} | sudo docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com\",
+              \"cd /opt/member-management-ui\",
+              \"sudo docker compose --env-file .env.prod -f docker-compose.prod.yml pull\",
+              \"sudo docker compose --env-file .env.prod -f docker-compose.prod.yml up -d\",
+              \"sudo docker image prune -f\"
+            ]" \
+            --query "Command.CommandId" \
+            --output text
+
+      - name: Output URLs
+        run: |
+          echo "EC2 IP: http://${{ steps.tfout.outputs.public_ip }}/"
+          echo "DuckDNS: http://${DUCKDNS_SUBDOMAIN}.duckdns.org/"
+

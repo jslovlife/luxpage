@@ -7,3 +7,4 @@ build
 .demo-store.json
 public/demo-uploads/*
 !public/demo-uploads/.gitkeep
+*.pem

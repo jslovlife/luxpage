@@ -1,8 +1,6 @@
 name: Deploy to EC2 (Docker + ECR)
 
 on:
-  push:
-    branches: ["main"]
   workflow_dispatch: {}
 
 permissions:
@@ -11,6 +9,10 @@ permissions:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        # This repo is a monorepo; the Remix app lives under member-management-ui/
+        working-directory: member-management-ui
     env:
       AWS_REGION: ap-southeast-1
       ECR_REPOSITORY: member-management-ui
@@ -68,12 +70,9 @@ jobs:
             sudo mv -f ~/docker-compose.prod.yml /opt/member-management-ui/docker-compose.prod.yml
 
             # Create/overwrite .env.prod
-            cat > /opt/member-management-ui/.env.prod <<EOF
-AWS_REGION=${AWS_REGION}
-AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID}
-ECR_REPOSITORY=${ECR_REPOSITORY}
-SESSION_SECRET=${SESSION_SECRET}
-EOF
+            printf "AWS_REGION=%s\nAWS_ACCOUNT_ID=%s\nECR_REPOSITORY=%s\nSESSION_SECRET=%s\nCOOKIE_SECURE=%s\n" \
+              "${AWS_REGION}" "${AWS_ACCOUNT_ID}" "${ECR_REPOSITORY}" "${SESSION_SECRET}" "false" \
+              | sudo tee /opt/member-management-ui/.env.prod >/dev/null
 
             # Docker login to ECR (no AWS creds required on EC2)
             echo "${ECR_PASSWORD}" | sudo docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
