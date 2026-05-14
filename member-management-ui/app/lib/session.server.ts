@@ -20,7 +20,7 @@ export const sessionStorage = createCookieSessionStorage({
     path: "/",
     sameSite: "lax",
     secrets: [process.env.SESSION_SECRET ?? "dev-secret-change-me"],
-    secure: process.env.NODE_ENV === "production"
+    secure: process.env.COOKIE_SECURE === "true"
   }
 });
 
@@ -55,4 +55,3 @@ export async function requireAdmin(request: Request): Promise<UserSession> {
   if (user.role !== "admin") throw redirect("/app");
   return user;
 }
-
