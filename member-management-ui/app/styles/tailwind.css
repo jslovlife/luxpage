@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Tenor+Sans&family=Manrope:wght@300;400;500;600;700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -27,13 +29,20 @@
 }
 
 [data-theme="member"] {
-  --bg: #fff7f2;
-  --surface: #ffffff;
-  --text: #1f1a17;
-  --muted: #6b5e57;
-  --border: #e9d8cf;
-  --primary: #c45a3c;
+  /* Tokens from "Lux Member H5 client · DESIGN SYSTEM" page */
+  --bg: #faf6ee; /* background */
+  --surface: #fffcf6; /* surface */
+  --text: #1a1612; /* ink */
+  --muted: #615648; /* ink/2 */
+  --border: #e8dec9; /* line */
+  --primary: #a07248; /* accent */
+  --primary-soft: #ebdac2; /* accent/soft */
+  --gold: #c8a165; /* gold */
   --primary-foreground: #ffffff;
+
+  /* Typography */
+  --font-display: "Tenor Sans", ui-serif, Georgia, serif;
+  --font-body: "Manrope", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
 }
 
 html,
@@ -50,4 +59,24 @@ body {
   background: var(--bg);
   color: var(--text);
   margin: 0;
+}
+
+/* Member typography defaults */
+[data-theme="member"] body {
+  font-family: var(--font-body);
+}
+
+/* Optional dark mode preview (auto) — matches PDF "Dark mode preview" direction */
+@media (prefers-color-scheme: dark) {
+  [data-theme="member"] {
+    --bg: #0f0d0b;
+    --surface: #14110e;
+    --text: #f2ede6;
+    --muted: #b9b0a6;
+    --border: rgba(255, 255, 255, 0.08);
+    --primary: #c99772;
+    --primary-soft: rgba(201, 151, 114, 0.18);
+    --gold: #c8a165;
+    --primary-foreground: #0f0d0b;
+  }
 }

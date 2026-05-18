@@ -28,6 +28,7 @@ export default function AdminLayout() {
         { to: "/admin/studios", labelKey: "studios" },
         { to: "/admin/members", labelKey: "members" },
         { to: "/admin/payments", labelKey: "paymentMethods" },
+        { to: "/admin/orders", labelKey: "orders" },
         { to: "/admin/photos", labelKey: "photos" }
       ]}
       headerRight={

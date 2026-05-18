@@ -3,10 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "remix dev",
-    "build": "remix build",
+    "dev": "node ./node_modules/@remix-run/dev/dist/cli.js dev",
+    "build": "node ./node_modules/@remix-run/dev/dist/cli.js build",
     "start": "remix-serve ./build/index.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "node ./node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@remix-run/node": "^2.15.0",

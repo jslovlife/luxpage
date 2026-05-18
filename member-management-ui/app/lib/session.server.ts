@@ -43,7 +43,7 @@ export async function getUser(request: Request): Promise<UserSession | null> {
  */
 export async function requireUser(request: Request): Promise<UserSession> {
   const user = await getUser(request);
-  if (!user) throw redirect("/login");
+  if (!user) throw redirect("/signin");
   return user;
 }
 
@@ -51,7 +51,8 @@ export async function requireUser(request: Request): Promise<UserSession> {
  * Require admin role.
  */
 export async function requireAdmin(request: Request): Promise<UserSession> {
-  const user = await requireUser(request);
+  const user = await getUser(request);
+  if (!user) throw redirect("/login");
   if (user.role !== "admin") throw redirect("/app");
   return user;
 }

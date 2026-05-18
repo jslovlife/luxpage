@@ -6,8 +6,10 @@ export type I18nKey =
   | "signOut"
   | "memberApp"
   | "admin"
+  | "home"
   | "dashboard"
   | "profile"
+  | "me"
   | "bookNow"
   | "payActivate"
   | "membershipFee"
@@ -23,6 +25,7 @@ export type I18nKey =
   | "ruleMaxDuration"
   | "photos"
   | "notifications"
+  | "messages"
   | "members"
   | "rules"
   | "studios"
@@ -40,7 +43,8 @@ export type I18nKey =
   | "day"
   | "month"
   | "year"
-  | "apply";
+  | "apply"
+  | "orders";
 
 const DICT: Record<Lang, Record<I18nKey, string>> = {
   zh: {
@@ -49,8 +53,10 @@ const DICT: Record<Lang, Record<I18nKey, string>> = {
     signOut: "退出登录",
     memberApp: "会员端",
     admin: "后台管理",
+    home: "首页",
     dashboard: "仪表盘",
     profile: "我的",
+    me: "我的",
     bookNow: "立即预约",
     payActivate: "开通/续费会员",
     membershipFee: "会员费",
@@ -66,6 +72,7 @@ const DICT: Record<Lang, Record<I18nKey, string>> = {
     ruleMaxDuration: "每次最多 2 小时",
     photos: "照片档案",
     notifications: "通知",
+    messages: "消息",
     members: "会员",
     rules: "规则",
     studios: "摄影棚",
@@ -82,7 +89,8 @@ const DICT: Record<Lang, Record<I18nKey, string>> = {
     day: "日期",
     month: "月份",
     year: "年份",
-    apply: "应用"
+    apply: "应用",
+    orders: "订单"
   },
   en: {
     appName: "Member Management",
@@ -90,8 +98,10 @@ const DICT: Record<Lang, Record<I18nKey, string>> = {
     signOut: "Sign out",
     memberApp: "Member App",
     admin: "Admin",
+    home: "Home",
     dashboard: "Dashboard",
     profile: "Profile",
+    me: "Me",
     bookNow: "Book now",
     payActivate: "Pay / Activate",
     membershipFee: "Membership fee",
@@ -107,6 +117,7 @@ const DICT: Record<Lang, Record<I18nKey, string>> = {
     ruleMaxDuration: "Max 2 hours per session",
     photos: "Photo library",
     notifications: "Notifications",
+    messages: "Messages",
     members: "Members",
     rules: "Rules",
     studios: "Studios",
@@ -123,7 +134,8 @@ const DICT: Record<Lang, Record<I18nKey, string>> = {
     day: "Day",
     month: "Month",
     year: "Year",
-    apply: "Apply"
+    apply: "Apply",
+    orders: "Orders"
   }
 };
 

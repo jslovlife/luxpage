@@ -1,5 +1,6 @@
 import { Outlet } from "@remix-run/react";
 
-export default function BookingLayout() {
+export default function OrdersLayout() {
   return <Outlet />;
 }
+

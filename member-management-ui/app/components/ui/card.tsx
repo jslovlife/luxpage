@@ -8,7 +8,10 @@ export function Card(props: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       {...props}
-      className={cn("rounded-2xl border border-[color:var(--border)] bg-white shadow-sm", props.className)}
+      className={cn(
+        "rounded-[22px] border border-[color:var(--border)] bg-[color:var(--surface)] shadow-sm",
+        props.className
+      )}
     />
   );
 }
@@ -32,4 +35,3 @@ export function CardContent(props: React.HTMLAttributes<HTMLDivElement>) {
 export function CardFooter(props: React.HTMLAttributes<HTMLDivElement>) {
   return <div {...props} className={cn("p-5 pt-0", props.className)} />;
 }
-

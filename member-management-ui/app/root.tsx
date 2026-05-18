@@ -12,7 +12,9 @@ export const links: LinksFunction = () => [{ rel: "stylesheet", href: stylesUrl 
 export async function loader(args: LoaderFunctionArgs) {
   const lang = await getLang(args.request);
   const url = new URL(args.request.url);
-  const theme = url.pathname.startsWith("/app") ? "member" : "admin";
+  const memberTheme =
+    url.pathname.startsWith("/app") || url.pathname === "/signin" || url.pathname === "/register";
+  const theme = memberTheme ? "member" : "admin";
   return json({ lang, theme });
 }
 

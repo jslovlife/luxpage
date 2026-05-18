@@ -8,8 +8,9 @@ import { getSession, sessionStorage } from "~/lib/session.server";
  */
 export async function action(args: ActionFunctionArgs) {
   const session = await getSession(args.request);
-  return redirect("/login", {
+  const user = session.get("user") as { role?: string } | undefined;
+  const next = user?.role === "admin" ? "/login" : "/signin";
+  return redirect(next, {
     headers: { "Set-Cookie": await sessionStorage.destroySession(session) }
   });
 }
-

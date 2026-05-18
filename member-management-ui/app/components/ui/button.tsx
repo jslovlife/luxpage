@@ -20,7 +20,7 @@ export function Button(
   const { className, variant = "default", size = "default", asChild, ...rest } = props;
 
   const classes = cn(
-    "inline-flex items-center justify-center rounded-xl text-sm font-medium transition-colors",
+    "inline-flex items-center justify-center rounded-full text-sm font-medium transition-colors",
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--primary)] focus-visible:ring-offset-2",
     "disabled:pointer-events-none disabled:opacity-50",
     size === "default" && "h-11 px-4",

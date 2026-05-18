@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import type { UserSession } from "~/lib/session.server";
+import { getShootPackage } from "~/lib/shoot-packages";
 
 export type MembershipStatus = "none" | "active" | "expired";
 
@@ -41,12 +42,53 @@ export type PaymentMethodConfig = {
 export type Booking = {
   id: string;
   memberId: string;
+  packageId: string;
   startsAt: string; // ISO
   endsAt: string; // ISO
   studio: string;
   photographer: string;
-  status: "confirmed" | "cancelled";
+  status: "confirmed" | "pending" | "cancelled";
   createdAt: string; // ISO
+};
+
+export type PointsLedgerEntry = {
+  id: string;
+  memberId: string;
+  kind: "earn" | "deduct";
+  points: number;
+  titleZh: string;
+  titleEn: string;
+  subtitleZh?: string;
+  subtitleEn?: string;
+  createdAt: string; // ISO
+  expiresAt?: string; // ISO
+};
+
+export type CreditsLedgerEntry = {
+  id: string;
+  memberId: string;
+  kind: "grant" | "spend" | "adjust";
+  credits: number;
+  titleZh: string;
+  titleEn: string;
+  subtitleZh?: string;
+  subtitleEn?: string;
+  createdAt: string; // ISO
+  expiresAt?: string; // ISO
+};
+
+export type TopupOrderStatus = "submitted" | "approved" | "rejected";
+
+export type TopupOrder = {
+  id: string;
+  memberId: string;
+  packageId: string;
+  amount: number;
+  currency: "MYR" | "SGD" | "THB";
+  proofUrl: string;
+  status: TopupOrderStatus;
+  createdAt: string; // ISO
+  reviewedAt?: string; // ISO
 };
 
 export type AlbumStatus = "waiting_upload" | "delivered" | "retouch_requested" | "retouch_done";
@@ -134,6 +176,9 @@ export type DemoStore = {
   ruleConfigs?: Record<string, RuleConfig>;
   studios: Record<string, Studio>;
   bookings: Record<string, Booking>;
+  pointsLedgers: Record<string, PointsLedgerEntry>;
+  creditsLedgers: Record<string, CreditsLedgerEntry>;
+  topupOrders: Record<string, TopupOrder>;
   albums: Record<string, PhotoAlbum>;
   photos: Record<string, Photo>;
   notifications: Record<string, Notification>;
@@ -220,8 +265,8 @@ class DemoStoreService {
     };
     const memberB: Member = {
       id: "m_demo_b",
-      name: "Member B",
-      email: "member.b@example.com",
+      name: "Alex Tan",
+      email: "alex.tan@studio.sg",
       phone: "+65 8123 4567",
       memberNo: "SG-2026-000045",
       country: "SG",
@@ -253,6 +298,122 @@ class DemoStoreService {
       };
       photos[p.id] = p;
     }
+
+    const bookingForB1: Booking = {
+      id: "BKG-DEMO-0001",
+      memberId: memberB.id,
+      packageId: "daily_portrait",
+      startsAt: "2026-05-18T14:00:00+08:00",
+      endsAt: "2026-05-18T15:30:00+08:00",
+      studio: "Orchard Studio",
+      photographer: "Terence Lim",
+      status: "confirmed",
+      createdAt: now
+    };
+    const bookingForB0: Booking = {
+      id: "BKG-DEMO-0000",
+      memberId: memberB.id,
+      packageId: "bridal_outdoor",
+      startsAt: "2026-05-02T16:00:00+08:00",
+      endsAt: "2026-05-02T17:30:00+08:00",
+      studio: "Orchard Studio",
+      photographer: "Terence Lim",
+      status: "confirmed",
+      createdAt: now
+    };
+    const bookingForB2: Booking = {
+      id: "BKG-DEMO-0002",
+      memberId: memberB.id,
+      packageId: "family_session",
+      startsAt: "2026-05-26T10:30:00+08:00",
+      endsAt: "2026-05-26T12:00:00+08:00",
+      studio: "Tanjong Pagar",
+      photographer: "Yusra A.",
+      status: "pending",
+      createdAt: now
+    };
+    const bookingForB3: Booking = {
+      id: "BKG-DEMO-0003",
+      memberId: memberB.id,
+      packageId: "personal_branding",
+      startsAt: "2026-06-02T16:00:00+08:00",
+      endsAt: "2026-06-02T17:30:00+08:00",
+      studio: "Orchard Studio",
+      photographer: "Terence Lim",
+      status: "confirmed",
+      createdAt: now
+    };
+
+    const pointsEarn740: PointsLedgerEntry = {
+      id: "PTS-DEMO-0001",
+      memberId: memberB.id,
+      kind: "earn",
+      points: 740,
+      titleZh: "配套购买",
+      titleEn: "Package purchase",
+      subtitleZh: "Daily Portrait × 4",
+      subtitleEn: "Daily Portrait × 4",
+      createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString()
+    };
+    const pointsEarn60Soon: PointsLedgerEntry = {
+      id: "PTS-DEMO-0002",
+      memberId: memberB.id,
+      kind: "earn",
+      points: 60,
+      titleZh: "活动奖励",
+      titleEn: "Promo reward",
+      subtitleZh: "限时积分",
+      subtitleEn: "Limited-time points",
+      createdAt: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+    };
+    const pointsDeduct160A: PointsLedgerEntry = {
+      id: "PTS-DEMO-0003",
+      memberId: memberB.id,
+      kind: "deduct",
+      points: 160,
+      titleZh: "拍摄扣分",
+      titleEn: "Session deduction",
+      subtitleZh: "Orchard · 4 May",
+      subtitleEn: "Orchard · 4 May",
+      createdAt: new Date(Date.now() - 9 * 24 * 60 * 60 * 1000).toISOString()
+    };
+    const pointsDeduct160B: PointsLedgerEntry = {
+      id: "PTS-DEMO-0004",
+      memberId: memberB.id,
+      kind: "deduct",
+      points: 160,
+      titleZh: "调整扣分",
+      titleEn: "Manual deduction",
+      subtitleZh: "客服手动调整",
+      subtitleEn: "Manual adjustment",
+      createdAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString()
+    };
+
+    const creditsGrant10: CreditsLedgerEntry = {
+      id: "CRD-DEMO-0001",
+      memberId: memberB.id,
+      kind: "grant",
+      credits: 10,
+      titleZh: "充值到账",
+      titleEn: "Top-up granted",
+      subtitleZh: "3888 元 · 10 credits",
+      subtitleEn: "3888 · 10 credits",
+      createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+    };
+    const creditsSpend2: CreditsLedgerEntry = {
+      id: "CRD-DEMO-0002",
+      memberId: memberB.id,
+      kind: "spend",
+      credits: 2,
+      titleZh: "拍摄使用",
+      titleEn: "Session used",
+      subtitleZh: "已使用 2 次拍摄",
+      subtitleEn: "2 sessions",
+      createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    };
 
     return {
       version: 1,
@@ -287,7 +448,20 @@ class DemoStoreService {
         s_a: { id: "s_a", name: "Studio A", capacityPerSlot: 2, active: true, color: "#2563eb", createdAt: now },
         s_b: { id: "s_b", name: "Studio B", capacityPerSlot: 2, active: true, color: "#10b981", createdAt: now }
       },
-      bookings: {},
+      bookings: {
+        [bookingForB0.id]: bookingForB0,
+        [bookingForB1.id]: bookingForB1,
+        [bookingForB2.id]: bookingForB2,
+        [bookingForB3.id]: bookingForB3
+      },
+      pointsLedgers: {
+        [pointsEarn740.id]: pointsEarn740,
+        [pointsEarn60Soon.id]: pointsEarn60Soon,
+        [pointsDeduct160A.id]: pointsDeduct160A,
+        [pointsDeduct160B.id]: pointsDeduct160B
+      },
+      creditsLedgers: { [creditsGrant10.id]: creditsGrant10, [creditsSpend2.id]: creditsSpend2 },
+      topupOrders: {},
       albums: { [albumForB.id]: albumForB },
       photos,
       notifications: {},
@@ -355,8 +529,186 @@ class DemoStoreService {
 
     // normalize bookings studio field
     for (const b of Object.values(store.bookings ?? {})) {
+      const patch = b as unknown as { packageId?: string };
+      if (!patch.packageId) patch.packageId = "daily_portrait";
       if (b.studio === "Studio A") b.studio = "s_a";
       if (b.studio === "Studio B") b.studio = "s_b";
+    }
+
+    store.pointsLedgers = store.pointsLedgers ?? {};
+    store.creditsLedgers = store.creditsLedgers ?? {};
+    store.topupOrders = store.topupOrders ?? {};
+
+    const demoB = store.members?.["m_demo_b"];
+    if (demoB && demoB.email === "member.b@example.com") {
+      store.members["m_demo_b"] = { ...demoB, name: "Alex Tan", email: "alex.tan@studio.sg" };
+    }
+
+    if (store.members?.["m_demo_b"]) {
+      store.bookings = store.bookings ?? {};
+      const createdAt = new Date().toISOString();
+      const desired: Booking[] = [
+        {
+          id: "BKG-DEMO-0000",
+          memberId: "m_demo_b",
+          packageId: "bridal_outdoor",
+          startsAt: "2026-05-02T16:00:00+08:00",
+          endsAt: "2026-05-02T17:30:00+08:00",
+          studio: "Orchard Studio",
+          photographer: "Terence Lim",
+          status: "confirmed",
+          createdAt
+        },
+        {
+          id: "BKG-DEMO-0001",
+          memberId: "m_demo_b",
+          packageId: "daily_portrait",
+          startsAt: "2026-05-18T14:00:00+08:00",
+          endsAt: "2026-05-18T15:30:00+08:00",
+          studio: "Orchard Studio",
+          photographer: "Terence Lim",
+          status: "confirmed",
+          createdAt
+        },
+        {
+          id: "BKG-DEMO-0002",
+          memberId: "m_demo_b",
+          packageId: "family_session",
+          startsAt: "2026-05-26T10:30:00+08:00",
+          endsAt: "2026-05-26T12:00:00+08:00",
+          studio: "Tanjong Pagar",
+          photographer: "Yusra A.",
+          status: "pending",
+          createdAt
+        },
+        {
+          id: "BKG-DEMO-0003",
+          memberId: "m_demo_b",
+          packageId: "personal_branding",
+          startsAt: "2026-06-02T16:00:00+08:00",
+          endsAt: "2026-06-02T17:30:00+08:00",
+          studio: "Orchard Studio",
+          photographer: "Terence Lim",
+          status: "confirmed",
+          createdAt
+        }
+      ];
+      for (const b of desired) {
+        if (!store.bookings[b.id]) store.bookings[b.id] = b;
+      }
+    }
+
+    if (store.members?.["m_demo_b"]) {
+      const hasAnyPoints = Object.values(store.pointsLedgers).some((p) => p.memberId === "m_demo_b");
+      const hasAnyCredits = Object.values(store.creditsLedgers).some((c) => c.memberId === "m_demo_b");
+      const now = Date.now();
+      const createdAt = new Date().toISOString();
+
+      if (!hasAnyPoints) {
+        const points: PointsLedgerEntry[] = [
+          {
+            id: "PTS-DEMO-0001",
+            memberId: "m_demo_b",
+            kind: "earn",
+            points: 740,
+            titleZh: "配套购买",
+            titleEn: "Package purchase",
+            subtitleZh: "Daily Portrait × 4",
+            subtitleEn: "Daily Portrait × 4",
+            createdAt: new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString(),
+            expiresAt: new Date(now + 180 * 24 * 60 * 60 * 1000).toISOString()
+          },
+          {
+            id: "PTS-DEMO-0002",
+            memberId: "m_demo_b",
+            kind: "earn",
+            points: 60,
+            titleZh: "活动奖励",
+            titleEn: "Promo reward",
+            subtitleZh: "限时积分",
+            subtitleEn: "Limited-time points",
+            createdAt: new Date(now - 12 * 24 * 60 * 60 * 1000).toISOString(),
+            expiresAt: new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString()
+          },
+          {
+            id: "PTS-DEMO-0003",
+            memberId: "m_demo_b",
+            kind: "deduct",
+            points: 160,
+            titleZh: "拍摄扣分",
+            titleEn: "Session deduction",
+            subtitleZh: "Orchard · 4 May",
+            subtitleEn: "Orchard · 4 May",
+            createdAt: new Date(now - 9 * 24 * 60 * 60 * 1000).toISOString()
+          },
+          {
+            id: "PTS-DEMO-0004",
+            memberId: "m_demo_b",
+            kind: "deduct",
+            points: 160,
+            titleZh: "调整扣分",
+            titleEn: "Manual deduction",
+            subtitleZh: "客服手动调整",
+            subtitleEn: "Manual adjustment",
+            createdAt: new Date(now - 6 * 24 * 60 * 60 * 1000).toISOString()
+          }
+        ];
+        for (const p of points) {
+          if (!store.pointsLedgers[p.id]) store.pointsLedgers[p.id] = p;
+        }
+      }
+
+      if (!hasAnyCredits) {
+        const credits: CreditsLedgerEntry[] = [
+          {
+            id: "CRD-DEMO-0001",
+            memberId: "m_demo_b",
+            kind: "grant",
+            credits: 10,
+            titleZh: "充值到账",
+            titleEn: "Top-up granted",
+            subtitleZh: "3888 元 · 10 credits",
+            subtitleEn: "3888 · 10 credits",
+            createdAt: new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString(),
+            expiresAt: new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString()
+          },
+          {
+            id: "CRD-DEMO-0002",
+            memberId: "m_demo_b",
+            kind: "spend",
+            credits: 2,
+            titleZh: "拍摄使用",
+            titleEn: "Session used",
+            subtitleZh: "已使用 2 次拍摄",
+            subtitleEn: "2 sessions",
+            createdAt: new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString()
+          }
+        ];
+        for (const c of credits) {
+          if (!store.creditsLedgers[c.id]) store.creditsLedgers[c.id] = c;
+        }
+      }
+      if (store.creditsLedgers?.["CRD-DEMO-0001"] && !store.creditsLedgers["CRD-DEMO-0001"].expiresAt) {
+        store.creditsLedgers["CRD-DEMO-0001"] = {
+          ...store.creditsLedgers["CRD-DEMO-0001"],
+          expiresAt: new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString()
+        };
+      }
+
+      store.topupOrders = store.topupOrders ?? {};
+      if (!store.topupOrders["ORD-DEMO-0001"]) {
+        store.topupOrders["ORD-DEMO-0001"] = {
+          id: "ORD-DEMO-0001",
+          memberId: "m_demo_b",
+          packageId: "PKG-3888-10",
+          amount: 3888,
+          currency: "SGD",
+          proofUrl: "/demo-uploads/.gitkeep",
+          status: "approved",
+          createdAt,
+          reviewedAt: createdAt
+        };
+      }
     }
 
     // rule configs (generic rule table)
@@ -591,6 +943,7 @@ class DemoStoreService {
    */
   public async createBooking(params: {
     memberId: string;
+    packageId: string;
     startsAt: string;
     endsAt: string;
     studio: string;
@@ -599,6 +952,9 @@ class DemoStoreService {
     const store = await this.getStore();
     const member = store.members[params.memberId];
     if (!member) return { ok: false, reason: "Member not found" };
+
+    const pkg = getShootPackage(params.packageId);
+    if (!pkg) return { ok: false, reason: "Invalid package" };
 
     const starts = new Date(params.startsAt);
     const ends = new Date(params.endsAt);
@@ -633,10 +989,14 @@ class DemoStoreService {
     ).length;
     if (sameSlotCount >= capacityLimit) return { ok: false, reason: "Slot is full" };
 
+    const creditsSummary = await this.getMemberCreditsSummary({ memberId: params.memberId });
+    if (creditsSummary.balance < pkg.credits) return { ok: false, reason: "Insufficient credits" };
+
     const now = new Date().toISOString();
     const booking: Booking = {
       id: `BKG-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
       memberId: params.memberId,
+      packageId: pkg.id,
       startsAt: starts.toISOString(),
       endsAt: ends.toISOString(),
       studio: params.studio,
@@ -646,11 +1006,25 @@ class DemoStoreService {
     };
     store.bookings[booking.id] = booking;
 
+    store.creditsLedgers = store.creditsLedgers ?? {};
+    const spend: CreditsLedgerEntry = {
+      id: `CRD-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      memberId: member.id,
+      kind: "spend",
+      credits: pkg.credits,
+      titleZh: "拍摄配套下单",
+      titleEn: "Credits spent",
+      subtitleZh: `${pkg.titleZh} · ${booking.id}`,
+      subtitleEn: `${pkg.titleEn} · ${booking.id}`,
+      createdAt: now
+    };
+    store.creditsLedgers[spend.id] = spend;
+
     this.addNotification(store, {
       memberId: member.id,
       type: "booking",
       title: "Booking confirmed / 预约成功",
-      body: `${booking.startsAt.slice(0, 16).replace("T", " ")} · ${booking.studio}`
+      body: `${booking.startsAt.slice(0, 16).replace("T", " ")} · ${booking.studio} · ${pkg.titleEn}`
     });
 
     await this.persist();
@@ -867,6 +1241,184 @@ class DemoStoreService {
     const all = Object.values(store.bookings);
     const filtered = params?.memberId ? all.filter((b) => b.memberId === params.memberId) : all;
     return filtered.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  }
+
+  public async listPointsLedgers(params: { memberId: string }): Promise<PointsLedgerEntry[]> {
+    const store = await this.getStore();
+    const all = Object.values(store.pointsLedgers ?? {});
+    return all
+      .filter((p) => p.memberId === params.memberId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  public async listCreditsLedgers(params: { memberId: string }): Promise<CreditsLedgerEntry[]> {
+    const store = await this.getStore();
+    const all = Object.values(store.creditsLedgers ?? {});
+    return all
+      .filter((c) => c.memberId === params.memberId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  public async listTopupOrders(params?: { memberId?: string }): Promise<TopupOrder[]> {
+    const store = await this.getStore();
+    const all = Object.values(store.topupOrders ?? {});
+    const filtered = params?.memberId ? all.filter((o) => o.memberId === params.memberId) : all;
+    return filtered.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  public getMemberLevelFromPoints(pointsEarnedTotal: number) {
+    if (pointsEarnedTotal >= 500) return 3;
+    if (pointsEarnedTotal >= 300) return 2;
+    if (pointsEarnedTotal >= 100) return 1;
+    return 0;
+  }
+
+  public async getMemberPointsSummary(params: { memberId: string }) {
+    const entries = await this.listPointsLedgers({ memberId: params.memberId });
+    const now = Date.now();
+    const earnValid = entries.filter((e) => {
+      if (e.kind !== "earn") return false;
+      if (!e.expiresAt) return true;
+      const exp = new Date(e.expiresAt).getTime();
+      return !Number.isNaN(exp) && exp > now;
+    });
+    const earnedValid = earnValid.reduce((sum, e) => sum + e.points, 0);
+    const deducted = entries.filter((e) => e.kind === "deduct").reduce((sum, e) => sum + e.points, 0);
+    const available = Math.max(0, earnedValid - deducted);
+
+    const soonUntil = now + 30 * 24 * 60 * 60 * 1000;
+    const expiringSoon = earnValid
+      .filter((e) => {
+        if (!e.expiresAt) return false;
+        const exp = new Date(e.expiresAt).getTime();
+        return !Number.isNaN(exp) && exp <= soonUntil;
+      })
+      .reduce((sum, e) => sum + e.points, 0);
+
+    const earnedTotal = entries.filter((e) => e.kind === "earn").reduce((sum, e) => sum + e.points, 0);
+    const level = this.getMemberLevelFromPoints(earnedTotal);
+
+    return { available, expiringSoon, earnedTotal, level };
+  }
+
+  public async getMemberCreditsSummary(params: { memberId: string }) {
+    const entries = await this.listCreditsLedgers({ memberId: params.memberId });
+    const now = Date.now();
+    const soonUntil = now + 30 * 24 * 60 * 60 * 1000;
+
+    const validGrant = entries.filter((e) => {
+      if (e.kind !== "grant" && e.kind !== "adjust") return false;
+      if (!e.expiresAt) return true;
+      const exp = new Date(e.expiresAt).getTime();
+      return !Number.isNaN(exp) && exp > now;
+    });
+
+    const balance = Math.max(
+      0,
+      validGrant.reduce((sum, e) => sum + e.credits, 0) - entries.filter((e) => e.kind === "spend").reduce((sum, e) => sum + e.credits, 0)
+    );
+
+    const expiring = validGrant.filter((e) => {
+      if (!e.expiresAt) return false;
+      const exp = new Date(e.expiresAt).getTime();
+      return !Number.isNaN(exp) && exp <= soonUntil;
+    });
+
+    let nextExpiryAt: string | null = null;
+    let expiringCredits = 0;
+    for (const e of expiring) {
+      const exp = new Date(e.expiresAt as string).getTime();
+      if (!Number.isFinite(exp)) continue;
+      if (!nextExpiryAt) {
+        nextExpiryAt = e.expiresAt ?? null;
+        expiringCredits = e.credits;
+        continue;
+      }
+      const curr = new Date(nextExpiryAt).getTime();
+      if (exp < curr) {
+        nextExpiryAt = e.expiresAt ?? null;
+        expiringCredits = e.credits;
+        continue;
+      }
+      if (exp === curr) expiringCredits += e.credits;
+    }
+
+    return { balance, expiringCredits, nextExpiryAt };
+  }
+
+  public async createTopupOrder(params: {
+    memberId: string;
+    packageId: string;
+    amount: number;
+    currency: TopupOrder["currency"];
+    proofUrl: string;
+  }): Promise<TopupOrder> {
+    const store = await this.getStore();
+    store.topupOrders = store.topupOrders ?? {};
+    const now = new Date().toISOString();
+    const order: TopupOrder = {
+      id: `ORD-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      memberId: params.memberId,
+      packageId: params.packageId,
+      amount: params.amount,
+      currency: params.currency,
+      proofUrl: params.proofUrl,
+      status: "submitted",
+      createdAt: now
+    };
+    store.topupOrders[order.id] = order;
+    await this.persist();
+    return order;
+  }
+
+  public async reviewTopupOrder(params: {
+    orderId: string;
+    status: TopupOrderStatus;
+    grants?: { credits: number; creditsExpiresAt?: string; points: number; pointsExpiresAt?: string };
+  }): Promise<TopupOrder> {
+    const store = await this.getStore();
+    store.topupOrders = store.topupOrders ?? {};
+    const current = store.topupOrders[params.orderId];
+    if (!current) throw new Error("order not found");
+    const reviewedAt = new Date().toISOString();
+    const next: TopupOrder = { ...current, status: params.status, reviewedAt };
+    store.topupOrders[params.orderId] = next;
+
+    if (params.status === "approved" && params.grants) {
+      store.creditsLedgers = store.creditsLedgers ?? {};
+      store.pointsLedgers = store.pointsLedgers ?? {};
+      const createdAt = reviewedAt;
+      const credits: CreditsLedgerEntry = {
+        id: `CRD-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+        memberId: next.memberId,
+        kind: "grant",
+        credits: params.grants.credits,
+        titleZh: "充值到账",
+        titleEn: "Top-up granted",
+        subtitleZh: `${next.amount} ${next.currency} · ${params.grants.credits} credits`,
+        subtitleEn: `${next.amount} ${next.currency} · ${params.grants.credits} credits`,
+        createdAt,
+        expiresAt: params.grants.creditsExpiresAt
+      };
+      store.creditsLedgers[credits.id] = credits;
+
+      const points: PointsLedgerEntry = {
+        id: `PTS-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+        memberId: next.memberId,
+        kind: "earn",
+        points: params.grants.points,
+        titleZh: "充值积分",
+        titleEn: "Top-up points",
+        subtitleZh: `${next.amount} ${next.currency}`,
+        subtitleEn: `${next.amount} ${next.currency}`,
+        createdAt,
+        expiresAt: params.grants.pointsExpiresAt
+      };
+      store.pointsLedgers[points.id] = points;
+    }
+
+    await this.persist();
+    return next;
   }
 
   /**

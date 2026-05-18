@@ -1,11 +1,11 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { Outlet, useLoaderData } from "@remix-run/react";
+import { Form, Outlet, useLoaderData } from "@remix-run/react";
 import { AppShell } from "~/components/app-shell";
 import { LanguageToggle } from "~/components/lang-toggle";
+import { Button } from "~/components/ui/button";
 import { getLang } from "~/lib/lang.server";
 import { requireUser } from "~/lib/session.server";
-import { t } from "~/lib/i18n";
 
 export async function loader(args: LoaderFunctionArgs) {
   const lang = await getLang(args.request);
@@ -20,27 +20,33 @@ export default function MemberAppLayout() {
     <AppShell
       lang={lang}
       variant="member"
+      hideHeader
       brandHref="/app"
-      brandLabel={`${t(lang, "appName")} · ${t(lang, "memberApp")}`}
+      brandLabel="lux"
       nav={[
-        { to: "/app", labelKey: "dashboard" },
-        { to: "/app/membership", labelKey: "membershipFee" },
+        { to: "/app", labelKey: "home" },
         { to: "/app/booking", labelKey: "bookings" },
-        { to: "/app/photos", labelKey: "photos" },
-        { to: "/app/notifications", labelKey: "notifications" },
-        { to: "/app/profile", labelKey: "profile" }
+        { to: "/app/messages", labelKey: "messages" },
+        { to: "/app/me", labelKey: "me" }
       ]}
       mobileNav={[
-        { to: "/app", labelKey: "dashboard" },
+        { to: "/app", labelKey: "home" },
         { to: "/app/booking", labelKey: "bookings" },
-        { to: "/app/photos", labelKey: "photos" },
-        { to: "/app/notifications", labelKey: "notifications" },
-        { to: "/app/profile", labelKey: "profile" }
+        { to: "/app/messages", labelKey: "messages" },
+        { to: "/app/me", labelKey: "me" }
       ]}
-      headerRight={
-        <LanguageToggle lang={lang} />
-      }
     >
+      <div
+        className="fixed right-4 top-4 z-30 flex items-center gap-2 md:right-6"
+        style={{ top: "calc(env(safe-area-inset-top) + 12px)" }}
+      >
+        <LanguageToggle lang={lang} />
+        <Form method="post" action="/logout">
+          <Button variant="outline" size="sm" type="submit" className="h-9 rounded-full bg-[color:var(--surface)] px-3">
+            {lang === "zh" ? "登出" : "Logout"}
+          </Button>
+        </Form>
+      </div>
       <Outlet />
     </AppShell>
   );
