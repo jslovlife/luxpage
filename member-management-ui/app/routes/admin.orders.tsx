@@ -35,7 +35,8 @@ export async function loader(args: LoaderFunctionArgs) {
   const demo = getDemoStoreService();
   const store = await demo.getStore();
   const orders = await demo.listTopupOrders();
-  return json({ lang, orders, membersById: store.members });
+  const shootOrders = await demo.listShootOrders();
+  return json({ lang, orders, shootOrders, membersById: store.members, bookingsById: store.bookings });
 }
 
 export async function action(args: ActionFunctionArgs) {
@@ -64,11 +65,23 @@ export async function action(args: ActionFunctionArgs) {
     return redirect("/admin/orders");
   }
 
+  if (intent === "cancelShoot") {
+    const memberId = form.get("memberId")?.toString() ?? "";
+    const result = await demo.cancelShootOrder({ memberId, shootOrderId: orderId });
+    if (!result.ok) return json({ ok: false, message: result.reason }, { status: 400 });
+    return redirect("/admin/orders");
+  }
+
+  if (intent === "completeShoot") {
+    await demo.completeShootOrder({ shootOrderId: orderId });
+    return redirect("/admin/orders");
+  }
+
   return json({ ok: false, message: "Unknown intent" }, { status: 400 });
 }
 
 export default function AdminOrdersPage() {
-  const { orders, membersById } = useLoaderData<typeof loader>();
+  const { orders, shootOrders, membersById, bookingsById } = useLoaderData<typeof loader>();
 
   return (
     <div className="flex flex-col gap-4">
@@ -138,6 +151,82 @@ export default function AdminOrdersPage() {
                             <input type="hidden" name="orderId" value={o.id} />
                             <Button size="sm" variant="outline" type="submit" disabled={!canReview}>
                               Reject
+                            </Button>
+                          </Form>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={7} className="px-4 py-10 text-center text-sm text-[color:var(--muted)]">
+                    Empty
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Shoot orders</CardTitle>
+        </CardHeader>
+        <CardContent className="overflow-x-auto">
+          <table className="w-full min-w-[980px] text-left text-sm">
+            <thead className="bg-[color:var(--bg)] text-xs text-[color:var(--muted)]">
+              <tr>
+                <th className="px-4 py-3">Created</th>
+                <th className="px-4 py-3">Member</th>
+                <th className="px-4 py-3">Package</th>
+                <th className="px-4 py-3">Credits</th>
+                <th className="px-4 py-3">Schedule</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shootOrders.length ? (
+                shootOrders.map((o) => {
+                  const m = membersById[o.memberId];
+                  const booking = bookingsById[o.bookingId];
+                  const canAct = o.status === "scheduled";
+                  return (
+                    <tr key={o.id} className="border-t border-[color:var(--border)]">
+                      <td className="px-4 py-3 text-[color:var(--muted)]">{o.createdAt.slice(0, 16).replace("T", " ")}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col">
+                          <span className="font-medium">{m?.name ?? "Unknown"}</span>
+                          <span className="text-xs text-[color:var(--muted)]">{m?.memberNo ?? o.memberId}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">{o.packageId}</td>
+                      <td className="px-4 py-3">{o.creditsCost}</td>
+                      <td className="px-4 py-3 text-[color:var(--muted)]">
+                        {booking ? `${booking.startsAt.slice(0, 16).replace("T", " ")} · ${booking.studio}` : "-"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant="outline" className={cn("capitalize", statusBadge(o.status))}>
+                          {o.status}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="inline-flex items-center gap-2">
+                          <Form method="post">
+                            <input type="hidden" name="intent" value="completeShoot" />
+                            <input type="hidden" name="orderId" value={o.id} />
+                            <Button size="sm" type="submit" disabled={!canAct}>
+                              Complete
+                            </Button>
+                          </Form>
+                          <Form method="post">
+                            <input type="hidden" name="intent" value="cancelShoot" />
+                            <input type="hidden" name="orderId" value={o.id} />
+                            <input type="hidden" name="memberId" value={o.memberId} />
+                            <Button size="sm" variant="outline" type="submit" disabled={!canAct}>
+                              Cancel
                             </Button>
                           </Form>
                         </div>

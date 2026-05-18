@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
-import { json, redirect } from "@remix-run/node";
+import { json } from "@remix-run/node";
 import { Form, Link, useLoaderData } from "@remix-run/react";
 import * as React from "react";
 import { Button } from "~/components/ui/button";
@@ -8,7 +8,6 @@ import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { getLang } from "~/lib/lang.server";
 import type { Lang } from "~/lib/i18n";
-import { getSession, sessionStorage } from "~/lib/session.server";
 
 export async function loader(args: LoaderFunctionArgs) {
   const lang = await getLang(args.request);
@@ -16,21 +15,7 @@ export async function loader(args: LoaderFunctionArgs) {
 }
 
 export async function action(args: ActionFunctionArgs) {
-  const session = await getSession(args.request);
-  const form = await args.request.formData();
-  const email = form.get("email")?.toString() ?? "alex.tan@studio.sg";
-
-  session.set("user", {
-    id: "demo-user",
-    name: "Alex Tan",
-    email,
-    avatarUrl: "https://www.gravatar.com/avatar/?d=mp",
-    role: "member"
-  });
-
-  return redirect("/app", {
-    headers: { "Set-Cookie": await sessionStorage.commitSession(session) }
-  });
+  return json({ ok: false, message: "Use Google login" }, { status: 400 });
 }
 
 function Brand() {
@@ -151,11 +136,9 @@ export default function SignInPage() {
                 </div>
               </div>
 
-              <Form method="post" className="flex flex-col gap-3">
-                <Button type="submit" size="lg" className="w-full rounded-[18px] bg-[color:var(--primary)]">
-                  {lang === "zh" ? "登录（Demo）" : "Sign in (Demo)"}
-                </Button>
-              </Form>
+              <Button type="button" size="lg" className="w-full rounded-[18px] bg-[color:var(--primary)]" disabled>
+                {lang === "zh" ? "暂不支持密码登录" : "Password sign-in disabled"}
+              </Button>
 
               <div className="flex items-center gap-3">
                 <div className="h-px flex-1 bg-[color:var(--border)]" />
@@ -164,9 +147,20 @@ export default function SignInPage() {
               </div>
 
               <div className="flex flex-col gap-3">
-                <SocialButton icon={<GoogleIcon className="h-5 w-5" />}>
-                  {lang === "zh" ? "使用第三方账号继续 Google" : "Continue with Google"}
-                </SocialButton>
+                <Button
+                  asChild
+                  variant="outline"
+                  className="h-12 w-full justify-start gap-3 rounded-[18px] bg-[color:var(--surface)] px-4"
+                >
+                  <a href="/auth/google">
+                    <span className="grid h-6 w-6 place-items-center">
+                      <GoogleIcon className="h-5 w-5" />
+                    </span>
+                    <span className="flex-1 text-left">
+                      {lang === "zh" ? "使用 Google 登录" : "Continue with Google"}
+                    </span>
+                  </a>
+                </Button>
                 <SocialButton icon={<AppleIcon className="h-5 w-5" />} className="text-[color:var(--text)]">
                   {lang === "zh" ? "使用第三方账号继续 Apple" : "Continue with Apple"}
                 </SocialButton>

@@ -15,6 +15,8 @@ export type Member = {
   country: "MY" | "SG" | "TH";
   avatarUrl?: string;
   membershipExpiresAt?: string; // ISO
+  pointsBalance?: number;
+  pointsEarnedTotal?: number;
   createdAt: string; // ISO
 };
 
@@ -89,6 +91,22 @@ export type TopupOrder = {
   status: TopupOrderStatus;
   createdAt: string; // ISO
   reviewedAt?: string; // ISO
+};
+
+export type ShootOrderStatus = "scheduled" | "cancelled" | "completed";
+
+export type ShootOrder = {
+  id: string;
+  memberId: string;
+  packageId: string;
+  creditsCost: number;
+  bookingId: string;
+  status: ShootOrderStatus;
+  createdAt: string; // ISO
+  cancelledAt?: string; // ISO
+  refundCredits?: number;
+  rescheduledAt?: string; // ISO
+  previousBookingId?: string;
 };
 
 export type AlbumStatus = "waiting_upload" | "delivered" | "retouch_requested" | "retouch_done";
@@ -179,6 +197,7 @@ export type DemoStore = {
   pointsLedgers: Record<string, PointsLedgerEntry>;
   creditsLedgers: Record<string, CreditsLedgerEntry>;
   topupOrders: Record<string, TopupOrder>;
+  shootOrders?: Record<string, ShootOrder>;
   albums: Record<string, PhotoAlbum>;
   photos: Record<string, Photo>;
   notifications: Record<string, Notification>;
@@ -261,6 +280,8 @@ class DemoStoreService {
       phone: "+60 12-345 6789",
       memberNo: "MY-2026-000123",
       country: "MY",
+      pointsBalance: 0,
+      pointsEarnedTotal: 0,
       createdAt: now
     };
     const memberB: Member = {
@@ -270,6 +291,8 @@ class DemoStoreService {
       phone: "+65 8123 4567",
       memberNo: "SG-2026-000045",
       country: "SG",
+      pointsBalance: 480,
+      pointsEarnedTotal: 480,
       createdAt: now,
       // expiring soon
       membershipExpiresAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString()
@@ -441,6 +464,28 @@ class DemoStoreService {
           description: "Fallback capacity when a studio does not define its own capacity.",
           value: "2",
           createdAt: now
+        },
+        r_cancel_policy_json: {
+          id: "r_cancel_policy_json",
+          name: "Cancel policy (JSON)",
+          description: "Tiers: cutoffHours/refundRate (credits).",
+          value: JSON.stringify(
+            [
+              { cutoffHours: 48, refundRate: 1 },
+              { cutoffHours: 24, refundRate: 0.5 },
+              { cutoffHours: 0, refundRate: 0 }
+            ],
+            null,
+            0
+          ),
+          createdAt: now
+        },
+        r_reschedule_min_hours: {
+          id: "r_reschedule_min_hours",
+          name: "Reschedule min hours",
+          description: "Minimum hours before start to allow reschedule.",
+          value: "24",
+          createdAt: now
         }
       },
       studios: {
@@ -462,6 +507,7 @@ class DemoStoreService {
       },
       creditsLedgers: { [creditsGrant10.id]: creditsGrant10, [creditsSpend2.id]: creditsSpend2 },
       topupOrders: {},
+      shootOrders: {},
       albums: { [albumForB.id]: albumForB },
       photos,
       notifications: {},
@@ -538,6 +584,18 @@ class DemoStoreService {
     store.pointsLedgers = store.pointsLedgers ?? {};
     store.creditsLedgers = store.creditsLedgers ?? {};
     store.topupOrders = store.topupOrders ?? {};
+    store.shootOrders = store.shootOrders ?? {};
+
+    for (const m of Object.values(store.members ?? {})) {
+      const patch = m as unknown as { pointsBalance?: number; pointsEarnedTotal?: number };
+      if (patch.pointsBalance !== undefined && patch.pointsEarnedTotal !== undefined) continue;
+      const entries = Object.values(store.pointsLedgers).filter((p) => p.memberId === m.id);
+      const earnedTotal = entries.filter((e) => e.kind === "earn").reduce((sum, e) => sum + e.points, 0);
+      const deducted = entries.filter((e) => e.kind === "deduct").reduce((sum, e) => sum + e.points, 0);
+      const balance = Math.max(0, earnedTotal - deducted);
+      if (patch.pointsBalance === undefined) patch.pointsBalance = balance;
+      if (patch.pointsEarnedTotal === undefined) patch.pointsEarnedTotal = earnedTotal;
+    }
 
     const demoB = store.members?.["m_demo_b"];
     if (demoB && demoB.email === "member.b@example.com") {
@@ -595,6 +653,23 @@ class DemoStoreService {
       ];
       for (const b of desired) {
         if (!store.bookings[b.id]) store.bookings[b.id] = b;
+      }
+
+      const existingBookingIds = new Set(Object.values(store.shootOrders ?? {}).map((o) => o.bookingId));
+      for (const b of desired) {
+        if (existingBookingIds.has(b.id)) continue;
+        const pkg = getShootPackage(b.packageId);
+        const creditsCost = pkg?.credits ?? 1;
+        const o: ShootOrder = {
+          id: `SHO-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+          memberId: b.memberId,
+          packageId: b.packageId,
+          creditsCost,
+          bookingId: b.id,
+          status: b.status === "cancelled" ? "cancelled" : "scheduled",
+          createdAt: b.createdAt
+        };
+        store.shootOrders[o.id] = o;
       }
     }
 
@@ -735,9 +810,60 @@ class DemoStoreService {
           description: "Fallback capacity when a studio does not define its own capacity.",
           value: String(store.rules?.capacityPerSlot ?? 2),
           createdAt: now
+        },
+        r_cancel_policy_json: {
+          id: "r_cancel_policy_json",
+          name: "Cancel policy (JSON)",
+          description: "Tiers: cutoffHours/refundRate (credits).",
+          value: JSON.stringify(
+            [
+              { cutoffHours: 48, refundRate: 1 },
+              { cutoffHours: 24, refundRate: 0.5 },
+              { cutoffHours: 0, refundRate: 0 }
+            ],
+            null,
+            0
+          ),
+          createdAt: now
+        },
+        r_reschedule_min_hours: {
+          id: "r_reschedule_min_hours",
+          name: "Reschedule min hours",
+          description: "Minimum hours before start to allow reschedule.",
+          value: "24",
+          createdAt: now
         }
       };
     })();
+
+    if (!store.ruleConfigs.r_cancel_policy_json) {
+      const now = new Date().toISOString();
+      store.ruleConfigs.r_cancel_policy_json = {
+        id: "r_cancel_policy_json",
+        name: "Cancel policy (JSON)",
+        description: "Tiers: cutoffHours/refundRate (credits).",
+        value: JSON.stringify(
+          [
+            { cutoffHours: 48, refundRate: 1 },
+            { cutoffHours: 24, refundRate: 0.5 },
+            { cutoffHours: 0, refundRate: 0 }
+          ],
+          null,
+          0
+        ),
+        createdAt: now
+      };
+    }
+    if (!store.ruleConfigs.r_reschedule_min_hours) {
+      const now = new Date().toISOString();
+      store.ruleConfigs.r_reschedule_min_hours = {
+        id: "r_reschedule_min_hours",
+        name: "Reschedule min hours",
+        description: "Minimum hours before start to allow reschedule.",
+        value: "24",
+        createdAt: now
+      };
+    }
 
     // keep legacy rules in sync (best-effort)
     const minGap = Number(store.ruleConfigs.r_min_gap_days?.value ?? store.rules.minGapDays);
@@ -841,6 +967,8 @@ class DemoStoreService {
       memberNo: `MY-${new Date().getFullYear()}-${Math.floor(Math.random() * 900000 + 100000)}`,
       country: "MY",
       avatarUrl: user.avatarUrl,
+      pointsBalance: 0,
+      pointsEarnedTotal: 0,
       createdAt: now
     };
     store.members[created.id] = created;
@@ -948,6 +1076,7 @@ class DemoStoreService {
     endsAt: string;
     studio: string;
     photographer: string;
+    consumeCredits?: boolean;
   }): Promise<{ ok: true; booking: Booking } | { ok: false; reason: string }> {
     const store = await this.getStore();
     const member = store.members[params.memberId];
@@ -989,8 +1118,11 @@ class DemoStoreService {
     ).length;
     if (sameSlotCount >= capacityLimit) return { ok: false, reason: "Slot is full" };
 
-    const creditsSummary = await this.getMemberCreditsSummary({ memberId: params.memberId });
-    if (creditsSummary.balance < pkg.credits) return { ok: false, reason: "Insufficient credits" };
+    const consumeCredits = params.consumeCredits !== false;
+    if (consumeCredits) {
+      const creditsSummary = await this.getMemberCreditsSummary({ memberId: params.memberId });
+      if (creditsSummary.balance < pkg.credits) return { ok: false, reason: "Insufficient credits" };
+    }
 
     const now = new Date().toISOString();
     const booking: Booking = {
@@ -1006,19 +1138,21 @@ class DemoStoreService {
     };
     store.bookings[booking.id] = booking;
 
-    store.creditsLedgers = store.creditsLedgers ?? {};
-    const spend: CreditsLedgerEntry = {
-      id: `CRD-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
-      memberId: member.id,
-      kind: "spend",
-      credits: pkg.credits,
-      titleZh: "拍摄配套下单",
-      titleEn: "Credits spent",
-      subtitleZh: `${pkg.titleZh} · ${booking.id}`,
-      subtitleEn: `${pkg.titleEn} · ${booking.id}`,
-      createdAt: now
-    };
-    store.creditsLedgers[spend.id] = spend;
+    if (consumeCredits) {
+      store.creditsLedgers = store.creditsLedgers ?? {};
+      const spend: CreditsLedgerEntry = {
+        id: `CRD-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+        memberId: member.id,
+        kind: "spend",
+        credits: pkg.credits,
+        titleZh: "拍摄配套下单",
+        titleEn: "Credits spent",
+        subtitleZh: `${pkg.titleZh} · ${booking.id}`,
+        subtitleEn: `${pkg.titleEn} · ${booking.id}`,
+        createdAt: now
+      };
+      store.creditsLedgers[spend.id] = spend;
+    }
 
     this.addNotification(store, {
       memberId: member.id,
@@ -1029,6 +1163,167 @@ class DemoStoreService {
 
     await this.persist();
     return { ok: true, booking };
+  }
+
+  private parseCancelPolicy(value?: string) {
+    const fallback = [
+      { cutoffHours: 48, refundRate: 1 },
+      { cutoffHours: 24, refundRate: 0.5 },
+      { cutoffHours: 0, refundRate: 0 }
+    ];
+    if (!value) return fallback;
+    try {
+      const parsed = JSON.parse(value) as Array<{ cutoffHours?: number; refundRate?: number }>;
+      const normalized = (parsed ?? [])
+        .map((t) => ({
+          cutoffHours: Math.max(0, Number(t.cutoffHours ?? 0)),
+          refundRate: Math.max(0, Math.min(1, Number(t.refundRate ?? 0)))
+        }))
+        .filter((t) => Number.isFinite(t.cutoffHours) && Number.isFinite(t.refundRate));
+      return normalized.length ? normalized : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private getRescheduleMinHours(value?: string) {
+    const v = Number(value ?? 24);
+    return Number.isFinite(v) ? Math.max(0, v) : 24;
+  }
+
+  public async placeShootOrder(params: {
+    memberId: string;
+    packageId: string;
+    startsAt: string;
+    endsAt: string;
+    studio: string;
+    photographer: string;
+  }): Promise<{ ok: true; order: ShootOrder } | { ok: false; reason: string }> {
+    const pkg = getShootPackage(params.packageId);
+    if (!pkg) return { ok: false, reason: "Invalid package" };
+    const booking = await this.createBooking({ ...params, consumeCredits: true });
+    if (!booking.ok) return booking;
+    const store = await this.getStore();
+    store.shootOrders = store.shootOrders ?? {};
+    const now = new Date().toISOString();
+    const order: ShootOrder = {
+      id: `SHO-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      memberId: params.memberId,
+      packageId: pkg.id,
+      creditsCost: pkg.credits,
+      bookingId: booking.booking.id,
+      status: "scheduled",
+      createdAt: now
+    };
+    store.shootOrders[order.id] = order;
+    await this.persist();
+    return { ok: true, order };
+  }
+
+  public async cancelShootOrder(params: {
+    memberId: string;
+    shootOrderId: string;
+  }): Promise<{ ok: true; order: ShootOrder } | { ok: false; reason: string }> {
+    const store = await this.getStore();
+    store.shootOrders = store.shootOrders ?? {};
+    const order = store.shootOrders[params.shootOrderId];
+    if (!order) return { ok: false, reason: "Order not found" };
+    if (order.memberId !== params.memberId) return { ok: false, reason: "Forbidden" };
+    if (order.status !== "scheduled") return { ok: false, reason: "Order not cancellable" };
+    const booking = store.bookings[order.bookingId];
+    if (!booking) return { ok: false, reason: "Booking not found" };
+
+    const tiers = this.parseCancelPolicy(store.ruleConfigs?.r_cancel_policy_json?.value);
+    const startMs = new Date(booking.startsAt).getTime();
+    const hoursToStart = (startMs - Date.now()) / 3600000;
+    const sorted = [...tiers].sort((a, b) => b.cutoffHours - a.cutoffHours);
+    const chosen = sorted.find((t) => hoursToStart >= t.cutoffHours) ?? sorted[sorted.length - 1];
+    const refundCredits = Math.max(0, Math.floor(order.creditsCost * chosen.refundRate));
+
+    booking.status = "cancelled";
+    store.bookings[booking.id] = booking;
+
+    if (refundCredits > 0) {
+      store.creditsLedgers = store.creditsLedgers ?? {};
+      const now = new Date().toISOString();
+      const refund: CreditsLedgerEntry = {
+        id: `CRD-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+        memberId: params.memberId,
+        kind: "adjust",
+        credits: refundCredits,
+        titleZh: "取消退回",
+        titleEn: "Refund",
+        subtitleZh: `${order.packageId} · ${order.id}`,
+        subtitleEn: `${order.packageId} · ${order.id}`,
+        createdAt: now
+      };
+      store.creditsLedgers[refund.id] = refund;
+    }
+
+    const cancelledAt = new Date().toISOString();
+    const next: ShootOrder = { ...order, status: "cancelled", cancelledAt, refundCredits };
+    store.shootOrders[order.id] = next;
+    await this.persist();
+    return { ok: true, order: next };
+  }
+
+  public async rescheduleShootOrder(params: {
+    memberId: string;
+    shootOrderId: string;
+    startsAt: string;
+    endsAt: string;
+    studio: string;
+    photographer: string;
+  }): Promise<{ ok: true; order: ShootOrder } | { ok: false; reason: string }> {
+    const store = await this.getStore();
+    store.shootOrders = store.shootOrders ?? {};
+    const order = store.shootOrders[params.shootOrderId];
+    if (!order) return { ok: false, reason: "Order not found" };
+    if (order.memberId !== params.memberId) return { ok: false, reason: "Forbidden" };
+    if (order.status !== "scheduled") return { ok: false, reason: "Order not reschedulable" };
+    const booking = store.bookings[order.bookingId];
+    if (!booking) return { ok: false, reason: "Booking not found" };
+
+    const minHours = this.getRescheduleMinHours(store.ruleConfigs?.r_reschedule_min_hours?.value);
+    const startMs = new Date(booking.startsAt).getTime();
+    const hoursToStart = (startMs - Date.now()) / 3600000;
+    if (hoursToStart < minHours) return { ok: false, reason: "Reschedule window closed" };
+
+    const nextBooking = await this.createBooking({
+      memberId: params.memberId,
+      packageId: order.packageId,
+      startsAt: params.startsAt,
+      endsAt: params.endsAt,
+      studio: params.studio,
+      photographer: params.photographer,
+      consumeCredits: false
+    });
+    if (!nextBooking.ok) return nextBooking;
+
+    booking.status = "cancelled";
+    store.bookings[booking.id] = booking;
+
+    const rescheduledAt = new Date().toISOString();
+    const next: ShootOrder = {
+      ...order,
+      bookingId: nextBooking.booking.id,
+      previousBookingId: order.bookingId,
+      rescheduledAt
+    };
+    store.shootOrders[order.id] = next;
+    await this.persist();
+    return { ok: true, order: next };
+  }
+
+  public async completeShootOrder(params: { shootOrderId: string }): Promise<ShootOrder> {
+    const store = await this.getStore();
+    store.shootOrders = store.shootOrders ?? {};
+    const current = store.shootOrders[params.shootOrderId];
+    if (!current) throw new Error("order not found");
+    const next: ShootOrder = { ...current, status: "completed" };
+    store.shootOrders[params.shootOrderId] = next;
+    await this.persist();
+    return next;
   }
 
   /**
@@ -1266,6 +1561,14 @@ class DemoStoreService {
     return filtered.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
+  public async listShootOrders(params?: { memberId?: string }): Promise<ShootOrder[]> {
+    const store = await this.getStore();
+    store.shootOrders = store.shootOrders ?? {};
+    const all = Object.values(store.shootOrders);
+    const filtered = params?.memberId ? all.filter((o) => o.memberId === params.memberId) : all;
+    return filtered.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
   public getMemberLevelFromPoints(pointsEarnedTotal: number) {
     if (pointsEarnedTotal >= 500) return 3;
     if (pointsEarnedTotal >= 300) return 2;
@@ -1274,31 +1577,13 @@ class DemoStoreService {
   }
 
   public async getMemberPointsSummary(params: { memberId: string }) {
-    const entries = await this.listPointsLedgers({ memberId: params.memberId });
-    const now = Date.now();
-    const earnValid = entries.filter((e) => {
-      if (e.kind !== "earn") return false;
-      if (!e.expiresAt) return true;
-      const exp = new Date(e.expiresAt).getTime();
-      return !Number.isNaN(exp) && exp > now;
-    });
-    const earnedValid = earnValid.reduce((sum, e) => sum + e.points, 0);
-    const deducted = entries.filter((e) => e.kind === "deduct").reduce((sum, e) => sum + e.points, 0);
-    const available = Math.max(0, earnedValid - deducted);
-
-    const soonUntil = now + 30 * 24 * 60 * 60 * 1000;
-    const expiringSoon = earnValid
-      .filter((e) => {
-        if (!e.expiresAt) return false;
-        const exp = new Date(e.expiresAt).getTime();
-        return !Number.isNaN(exp) && exp <= soonUntil;
-      })
-      .reduce((sum, e) => sum + e.points, 0);
-
-    const earnedTotal = entries.filter((e) => e.kind === "earn").reduce((sum, e) => sum + e.points, 0);
+    const store = await this.getStore();
+    const member = store.members[params.memberId];
+    if (!member) return { available: 0, expiringSoon: 0, earnedTotal: 0, level: 0 };
+    const available = Math.max(0, member.pointsBalance ?? 0);
+    const earnedTotal = Math.max(0, member.pointsEarnedTotal ?? member.pointsBalance ?? 0);
     const level = this.getMemberLevelFromPoints(earnedTotal);
-
-    return { available, expiringSoon, earnedTotal, level };
+    return { available, expiringSoon: 0, earnedTotal, level };
   }
 
   public async getMemberCreditsSummary(params: { memberId: string }) {
@@ -1306,42 +1591,54 @@ class DemoStoreService {
     const now = Date.now();
     const soonUntil = now + 30 * 24 * 60 * 60 * 1000;
 
-    const validGrant = entries.filter((e) => {
-      if (e.kind !== "grant" && e.kind !== "adjust") return false;
-      if (!e.expiresAt) return true;
-      const exp = new Date(e.expiresAt).getTime();
-      return !Number.isNaN(exp) && exp > now;
-    });
+    const grants = entries
+      .filter((e) => e.kind === "grant" || e.kind === "adjust")
+      .sort((a, b) => {
+        const aExp = a.expiresAt ? new Date(a.expiresAt).getTime() : Number.POSITIVE_INFINITY;
+        const bExp = b.expiresAt ? new Date(b.expiresAt).getTime() : Number.POSITIVE_INFINITY;
+        if (aExp !== bExp) return aExp - bExp;
+        return a.createdAt.localeCompare(b.createdAt);
+      });
 
-    const balance = Math.max(
-      0,
-      validGrant.reduce((sum, e) => sum + e.credits, 0) - entries.filter((e) => e.kind === "spend").reduce((sum, e) => sum + e.credits, 0)
-    );
+    let spendLeft = entries.filter((e) => e.kind === "spend").reduce((sum, e) => sum + e.credits, 0);
+    const remainingById = new Map<string, number>();
 
-    const expiring = validGrant.filter((e) => {
-      if (!e.expiresAt) return false;
-      const exp = new Date(e.expiresAt).getTime();
-      return !Number.isNaN(exp) && exp <= soonUntil;
-    });
-
-    let nextExpiryAt: string | null = null;
-    let expiringCredits = 0;
-    for (const e of expiring) {
-      const exp = new Date(e.expiresAt as string).getTime();
-      if (!Number.isFinite(exp)) continue;
-      if (!nextExpiryAt) {
-        nextExpiryAt = e.expiresAt ?? null;
-        expiringCredits = e.credits;
-        continue;
-      }
-      const curr = new Date(nextExpiryAt).getTime();
-      if (exp < curr) {
-        nextExpiryAt = e.expiresAt ?? null;
-        expiringCredits = e.credits;
-        continue;
-      }
-      if (exp === curr) expiringCredits += e.credits;
+    for (const g of grants) {
+      const consume = Math.max(0, Math.min(g.credits, spendLeft));
+      const remain = Math.max(0, g.credits - consume);
+      remainingById.set(g.id, remain);
+      spendLeft -= consume;
+      if (spendLeft <= 0) break;
     }
+
+    for (const g of grants) {
+      if (!remainingById.has(g.id)) remainingById.set(g.id, g.credits);
+    }
+
+    const nonExpired = grants
+      .map((g) => {
+        const exp = g.expiresAt ? new Date(g.expiresAt).getTime() : Number.POSITIVE_INFINITY;
+        const remaining = remainingById.get(g.id) ?? 0;
+        return { g, exp, remaining };
+      })
+      .filter((x) => {
+        if (!x.remaining) return false;
+        if (!x.g.expiresAt) return true;
+        return Number.isFinite(x.exp) && x.exp > now;
+      });
+
+    const balance = nonExpired.reduce((sum, x) => sum + x.remaining, 0);
+
+    const expiringSoon = nonExpired
+      .filter((x) => x.g.expiresAt && Number.isFinite(x.exp) && x.exp <= soonUntil)
+      .sort((a, b) => a.exp - b.exp);
+
+    const first = expiringSoon[0] ?? null;
+    const nextExpiryAt = first?.g.expiresAt ?? null;
+    const expiringCredits =
+      first && nextExpiryAt
+        ? expiringSoon.filter((x) => x.g.expiresAt === nextExpiryAt).reduce((sum, x) => sum + x.remaining, 0)
+        : 0;
 
     return { balance, expiringCredits, nextExpiryAt };
   }
@@ -1401,6 +1698,16 @@ class DemoStoreService {
         expiresAt: params.grants.creditsExpiresAt
       };
       store.creditsLedgers[credits.id] = credits;
+
+      const member = store.members?.[next.memberId];
+      if (member) {
+        const patch = member as unknown as { pointsBalance?: number; pointsEarnedTotal?: number };
+        const baseBalance = patch.pointsBalance ?? 0;
+        const baseEarned = patch.pointsEarnedTotal ?? baseBalance;
+        patch.pointsBalance = baseBalance + params.grants.points;
+        patch.pointsEarnedTotal = baseEarned + params.grants.points;
+        store.members[next.memberId] = member;
+      }
 
       const points: PointsLedgerEntry = {
         id: `PTS-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,

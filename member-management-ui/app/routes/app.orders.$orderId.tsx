@@ -8,6 +8,7 @@ import { getDemoStoreService } from "~/lib/demo-store.server";
 import { getLang } from "~/lib/lang.server";
 import { requireUser } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
+import { getShootPackage } from "~/lib/shoot-packages";
 
 function BackIcon(props: { className?: string }) {
   return (
@@ -39,12 +40,17 @@ function statusLabel(status: string, lang: "zh" | "en") {
   if (status === "submitted") return lang === "zh" ? "待审核" : "Submitted";
   if (status === "approved") return lang === "zh" ? "已通过" : "Approved";
   if (status === "rejected") return lang === "zh" ? "已拒绝" : "Rejected";
+  if (status === "scheduled") return lang === "zh" ? "已预约" : "Scheduled";
+  if (status === "cancelled") return lang === "zh" ? "已取消" : "Cancelled";
+  if (status === "completed") return lang === "zh" ? "已完成" : "Completed";
   return status;
 }
 
 function statusBadge(status: string) {
   if (status === "approved") return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (status === "rejected") return "border-rose-200 bg-rose-50 text-rose-700";
+  if (status === "completed") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "cancelled") return "border-rose-200 bg-rose-50 text-rose-700";
   return "border-amber-200 bg-amber-50 text-amber-800";
 }
 
@@ -55,20 +61,83 @@ export async function loader(args: LoaderFunctionArgs) {
   const demo = getDemoStoreService();
   const member = await demo.getMemberForUser(user);
   if (!member) throw new Response("Not Found", { status: 404 });
-  const orders = await demo.listTopupOrders({ memberId: member.id });
-  const order = orders.find((o) => o.id === id) ?? null;
-  if (!order) throw new Response("Not Found", { status: 404 });
+  const topupOrders = await demo.listTopupOrders({ memberId: member.id });
+  const topup = topupOrders.find((o) => o.id === id) ?? null;
+  if (topup) {
+    const meta = packageMeta(topup.packageId);
+    const reviewedAt = topup.reviewedAt ? new Date(topup.reviewedAt).getTime() : NaN;
+    const expiresAt =
+      Number.isFinite(reviewedAt) ? new Date(reviewedAt + 180 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) : null;
+    return json({ lang, kind: "topup" as const, order: topup, meta, expiresAt });
+  }
 
-  const meta = packageMeta(order.packageId);
-  const reviewedAt = order.reviewedAt ? new Date(order.reviewedAt).getTime() : NaN;
-  const expiresAt =
-    Number.isFinite(reviewedAt) ? new Date(reviewedAt + 180 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) : null;
-
-  return json({ lang, order, meta, expiresAt });
+  const shootOrders = await demo.listShootOrders({ memberId: member.id });
+  const shoot = shootOrders.find((o) => o.id === id) ?? null;
+  if (!shoot) throw new Response("Not Found", { status: 404 });
+  const store = await demo.getStore();
+  const booking = store.bookings[shoot.bookingId] ?? null;
+  const pkg = getShootPackage(shoot.packageId);
+  return json({ lang, kind: "shoot" as const, order: shoot, booking, pkg });
 }
 
 export default function OrderDetailPage() {
-  const { lang, order, meta, expiresAt } = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>();
+  const { lang } = data;
+
+  if (data.kind === "shoot") {
+    const { order, booking, pkg } = data;
+    return (
+      <div className="mx-auto flex w-full max-w-md flex-col gap-4">
+        <div className="relative flex items-center justify-center px-1 pt-2">
+          <Link
+            to="/app/orders?type=shoot"
+            className="absolute left-1 inline-flex h-10 w-10 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface)]"
+            aria-label={lang === "zh" ? "返回" : "Back"}
+          >
+            <BackIcon className="h-5 w-5" />
+          </Link>
+          <div className="text-base font-medium">{lang === "zh" ? "订单详情" : "Order details"}</div>
+        </div>
+
+        <Card className="p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium">{lang === "zh" ? pkg?.titleZh ?? order.packageId : pkg?.titleEn ?? order.packageId}</div>
+              <div className="mt-1 text-xs text-[color:var(--muted)]">
+                {lang === "zh" ? `消耗 ${order.creditsCost} credits` : `${order.creditsCost} credits`} · {order.id}
+              </div>
+            </div>
+            <Badge variant="outline" className={cn("capitalize", statusBadge(order.status))}>
+              {statusLabel(order.status, lang)}
+            </Badge>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <div className="rounded-[18px] border border-[color:var(--border)] bg-[color:var(--bg)] px-4 py-3">
+              <div className="text-[10px] text-[color:var(--muted)]">{lang === "zh" ? "下单时间" : "Created"}</div>
+              <div className="mt-1 text-sm font-medium">{order.createdAt.slice(0, 16).replace("T", " ")}</div>
+            </div>
+            <div className="rounded-[18px] border border-[color:var(--border)] bg-[color:var(--bg)] px-4 py-3">
+              <div className="text-[10px] text-[color:var(--muted)]">{lang === "zh" ? "预约时间" : "Schedule"}</div>
+              <div className="mt-1 text-sm font-medium">
+                {booking ? `${booking.startsAt.slice(0, 16).replace("T", " ")}–${booking.endsAt.slice(11, 16)}` : "—"}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 text-xs text-[color:var(--muted)]">
+            {booking ? `${booking.studio} · ${booking.photographer}` : lang === "zh" ? "暂无预约信息" : "No booking info"}
+          </div>
+        </Card>
+
+        <Button asChild variant="outline" className="h-12 w-full rounded-[18px] bg-[color:var(--surface)]">
+          <Link to="/app/orders?type=shoot">{lang === "zh" ? "返回订单列表" : "Back to orders"}</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  const { order, meta, expiresAt } = data;
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-4">
@@ -141,4 +210,3 @@ export default function OrderDetailPage() {
     </div>
   );
 }
-

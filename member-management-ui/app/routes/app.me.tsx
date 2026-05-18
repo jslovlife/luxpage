@@ -21,8 +21,17 @@ export async function loader(args: LoaderFunctionArgs) {
   const membershipStatus = member ? demo.getMembershipStatus(member) : "none";
   const pointsSummary = member ? await demo.getMemberPointsSummary({ memberId: member.id }) : null;
   const creditsSummary = member ? await demo.getMemberCreditsSummary({ memberId: member.id }) : null;
-  const orders = member ? await demo.listTopupOrders({ memberId: member.id }) : [];
-  return json({ lang, user, member, membershipStatus, pointsSummary, creditsSummary, ordersCount: orders.length });
+  const topupOrders = member ? await demo.listTopupOrders({ memberId: member.id }) : [];
+  const shootOrders = member ? await demo.listShootOrders({ memberId: member.id }) : [];
+  return json({
+    lang,
+    user,
+    member,
+    membershipStatus,
+    pointsSummary,
+    creditsSummary,
+    ordersCount: topupOrders.length + shootOrders.length
+  });
 }
 
 export default function MePage() {
@@ -93,14 +102,6 @@ export default function MePage() {
       </div>
 
       <div className="flex flex-col gap-3">
-        <Link to="/app/points">
-          <Card className="p-4 transition-colors hover:bg-[color:var(--surface)]">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-medium">{lang === "zh" ? "积分明细" : "Points ledger"}</div>
-              <div className="text-xs text-[color:var(--muted)]">{points} pts →</div>
-            </div>
-          </Card>
-        </Link>
         <Link to="/app/topup">
           <Card className="p-4 transition-colors hover:bg-[color:var(--surface)]">
             <div className="flex items-center justify-between">

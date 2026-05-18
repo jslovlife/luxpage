@@ -8,6 +8,7 @@ import { getDemoStoreService } from "~/lib/demo-store.server";
 import { getLang } from "~/lib/lang.server";
 import { requireUser } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
+import { getShootPackage } from "~/lib/shoot-packages";
 
 function BackIcon(props: { className?: string }) {
   return (
@@ -39,12 +40,17 @@ function statusLabel(status: string, lang: "zh" | "en") {
   if (status === "submitted") return lang === "zh" ? "待审核" : "Submitted";
   if (status === "approved") return lang === "zh" ? "已通过" : "Approved";
   if (status === "rejected") return lang === "zh" ? "已拒绝" : "Rejected";
+  if (status === "scheduled") return lang === "zh" ? "已预约" : "Scheduled";
+  if (status === "cancelled") return lang === "zh" ? "已取消" : "Cancelled";
+  if (status === "completed") return lang === "zh" ? "已完成" : "Completed";
   return status;
 }
 
 function statusBadge(status: string) {
   if (status === "approved") return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (status === "rejected") return "border-rose-200 bg-rose-50 text-rose-700";
+  if (status === "completed") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "cancelled") return "border-rose-200 bg-rose-50 text-rose-700";
   return "border-amber-200 bg-amber-50 text-amber-800";
 }
 
@@ -52,26 +58,39 @@ export async function loader(args: LoaderFunctionArgs) {
   const lang = await getLang(args.request);
   const user = await requireUser(args.request);
   const url = new URL(args.request.url);
+  const type = (url.searchParams.get("type") as "shoot" | "topup" | null) ?? "shoot";
   const tab = (url.searchParams.get("tab") as "current" | "history" | null) ?? "current";
   const demo = getDemoStoreService();
   const member = await demo.getMemberForUser(user);
-  const orders = member ? await demo.listTopupOrders({ memberId: member.id }) : [];
-  return json({ lang, tab, orders });
+  const topupOrders = member ? await demo.listTopupOrders({ memberId: member.id }) : [];
+  const shootOrders = member ? await demo.listShootOrders({ memberId: member.id }) : [];
+  return json({ lang, type, tab, topupOrders, shootOrders });
 }
 
 export default function OrdersIndexPage() {
-  const { lang, tab, orders } = useLoaderData<typeof loader>();
+  const { lang, type, tab, topupOrders, shootOrders } = useLoaderData<typeof loader>();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = (searchParams.get("tab") as typeof tab | null) ?? tab;
+  const activeType = (searchParams.get("type") as typeof type | null) ?? type;
 
   const filtered = React.useMemo(() => {
-    if (activeTab === "current") return orders.filter((o) => o.status === "submitted");
-    return orders.filter((o) => o.status !== "submitted");
-  }, [activeTab, orders]);
+    if (activeType === "topup") {
+      if (activeTab === "current") return topupOrders.filter((o) => o.status === "submitted");
+      return topupOrders.filter((o) => o.status !== "submitted");
+    }
+    if (activeTab === "current") return shootOrders.filter((o) => o.status === "scheduled");
+    return shootOrders.filter((o) => o.status !== "scheduled");
+  }, [activeTab, activeType, shootOrders, topupOrders]);
 
   const setTab = (next: typeof tab) => {
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set("tab", next);
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  const setType = (next: typeof type) => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("type", next);
     setSearchParams(nextParams, { replace: true });
   };
 
@@ -86,6 +105,35 @@ export default function OrdersIndexPage() {
           <BackIcon className="h-5 w-5" />
         </Link>
         <div className="text-base font-medium">{lang === "zh" ? "全部订单" : "Orders"}</div>
+      </div>
+
+      <div className="px-1">
+        <div className="flex items-center gap-2 rounded-full border border-[color:var(--border)] bg-[color:var(--bg)] p-1 text-xs">
+          <button
+            type="button"
+            onClick={() => setType("shoot")}
+            className={cn(
+              "h-10 flex-1 rounded-full px-3 font-medium transition-colors",
+              activeType === "shoot"
+                ? "bg-[color:var(--surface)] text-[color:var(--text)] shadow-sm"
+                : "text-[color:var(--muted)]"
+            )}
+          >
+            {lang === "zh" ? "拍摄订单" : "Shoot"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setType("topup")}
+            className={cn(
+              "h-10 flex-1 rounded-full px-3 font-medium transition-colors",
+              activeType === "topup"
+                ? "bg-[color:var(--surface)] text-[color:var(--text)] shadow-sm"
+                : "text-[color:var(--muted)]"
+            )}
+          >
+            {lang === "zh" ? "充值订单" : "Top-up"}
+          </button>
+        </div>
       </div>
 
       <div className="px-1">
@@ -124,9 +172,23 @@ export default function OrdersIndexPage() {
               <Card className="p-4 transition-colors hover:bg-[color:var(--surface)]">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">{packageTitle(o.packageId, lang)}</div>
+                    <div className="truncate text-sm font-medium">
+                      {"amount" in o
+                        ? packageTitle(o.packageId, lang)
+                        : lang === "zh"
+                          ? getShootPackage(o.packageId)?.titleZh ?? o.packageId
+                          : getShootPackage(o.packageId)?.titleEn ?? o.packageId}
+                    </div>
                     <div className="mt-1 text-xs text-[color:var(--muted)]">
-                      {o.amount} {o.currency} · {o.id}
+                      {"amount" in o ? (
+                        <>
+                          {o.amount} {o.currency} · {o.id}
+                        </>
+                      ) : (
+                        <>
+                          {lang === "zh" ? `消耗 ${o.creditsCost} credits` : `${o.creditsCost} credits`} · {o.id}
+                        </>
+                      )}
                     </div>
                     <div className="mt-2 text-xs text-[color:var(--muted)]">{o.createdAt.slice(0, 10)}</div>
                   </div>
@@ -147,4 +209,3 @@ export default function OrdersIndexPage() {
     </div>
   );
 }
-

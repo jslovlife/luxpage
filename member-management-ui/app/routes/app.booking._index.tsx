@@ -1,7 +1,7 @@
-import type { LoaderFunctionArgs } from "@remix-run/node";
-import { json } from "@remix-run/node";
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
+import { json, redirect } from "@remix-run/node";
 import * as React from "react";
-import { Link, useLoaderData, useSearchParams } from "@remix-run/react";
+import { Form, Link, useActionData, useLoaderData, useSearchParams } from "@remix-run/react";
 import { Card, CardContent } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { getDemoStoreService } from "~/lib/demo-store.server";
@@ -18,13 +18,40 @@ export async function loader(args: LoaderFunctionArgs) {
   const demo = getDemoStoreService();
   const member = await demo.getMemberForUser(user);
   const bookings = member ? await demo.listBookings({ memberId: member.id }) : [];
-  return json({ lang, member, bookings, tab });
+  const shootOrders = member ? await demo.listShootOrders({ memberId: member.id }) : [];
+  return json({ lang, member, bookings, shootOrders, tab });
+}
+
+export async function action(args: ActionFunctionArgs) {
+  const user = await requireUser(args.request);
+  const demo = getDemoStoreService();
+  const member = await demo.getMemberForUser(user);
+  if (!member) return json({ ok: false, message: "Member not found" }, { status: 400 });
+  const form = await args.request.formData();
+  const intent = form.get("intent")?.toString() ?? "";
+  const shootOrderId = form.get("shootOrderId")?.toString() ?? "";
+  if (!shootOrderId) return json({ ok: false, message: "Missing order" }, { status: 400 });
+
+  if (intent === "cancel") {
+    const result = await demo.cancelShootOrder({ memberId: member.id, shootOrderId });
+    if (!result.ok) return json({ ok: false, message: result.reason }, { status: 400 });
+    return redirect("/app/booking");
+  }
+
+  return json({ ok: false, message: "Unknown intent" }, { status: 400 });
 }
 
 export default function BookingIndexPage() {
-  const { lang, member, bookings, tab } = useLoaderData<typeof loader>();
+  const { lang, member, bookings, shootOrders, tab } = useLoaderData<typeof loader>();
+  const actionData = useActionData<typeof action>();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = (searchParams.get("tab") as typeof tab | null) ?? tab;
+
+  const orderByBookingId = React.useMemo(() => {
+    const map = new Map<string, (typeof shootOrders)[number]>();
+    for (const o of shootOrders) map.set(o.bookingId, o);
+    return map;
+  }, [shootOrders]);
 
   const now = Date.now();
   const categorized = React.useMemo(() => {
@@ -108,7 +135,7 @@ export default function BookingIndexPage() {
 
       <div className="flex flex-col gap-3">
         {list.length ? (
-          list.map((b) => <BookingCard key={b.id} lang={lang} booking={b} memberNo={memberNo} />)
+          list.map((b) => <BookingCard key={b.id} lang={lang} booking={b} order={orderByBookingId.get(b.id) ?? null} memberNo={memberNo} />)
         ) : (
           <Card className="bg-[color:var(--bg)]">
             <CardContent className="p-4 text-sm text-[color:var(--muted)]">{lang === "zh" ? "暂无预约" : "No bookings yet"}</CardContent>
@@ -121,6 +148,8 @@ export default function BookingIndexPage() {
           <Link to="/app/booking/new">{lang === "zh" ? "新增预约" : "New booking"}</Link>
         </Button>
       </div>
+
+      {actionData?.ok === false ? <div className="px-1 text-xs text-rose-700">{actionData.message}</div> : null}
     </div>
   );
 }
@@ -204,9 +233,10 @@ function packageTitle(packageId: string, lang: "zh" | "en") {
 function BookingCard(props: {
   lang: "zh" | "en";
   booking: { id: string; packageId: string; startsAt: string; studio: string; photographer: string; status: string };
+  order: { id: string; status: string } | null;
   memberNo: string;
 }) {
-  const { lang, booking } = props;
+  const { lang, booking, order } = props;
   const start = parseIso(booking.startsAt);
   const dateLine = start
     ? lang === "zh"
@@ -216,6 +246,7 @@ function BookingCard(props: {
   const time = start ? formatTime(start) : "—";
   const chip = statusChip(booking.status);
   const isConfirmed = booking.status === "confirmed";
+  const cancellable = Boolean(order && order.status === "scheduled" && (booking.status === "confirmed" || booking.status === "pending"));
 
   return (
     <div className="relative overflow-hidden rounded-[26px] border border-[color:var(--border)] bg-[color:var(--surface)]">
@@ -244,12 +275,24 @@ function BookingCard(props: {
         </div>
 
         <div className={cn("mt-4 grid gap-3", isConfirmed ? "grid-cols-2" : "grid-cols-1")}>
-          <Button variant="outline" className="h-11 rounded-full bg-[color:var(--surface)]">
-            {lang === "zh" ? "查看详情" : "Details"}
-          </Button>
+          {cancellable ? (
+            <Form method="post">
+              <input type="hidden" name="intent" value="cancel" />
+              <input type="hidden" name="shootOrderId" value={order?.id ?? ""} />
+              <Button variant="outline" className="h-11 w-full rounded-full bg-[color:var(--surface)]" type="submit">
+                {lang === "zh" ? "取消" : "Cancel"}
+              </Button>
+            </Form>
+          ) : (
+            <Button variant="outline" className="h-11 rounded-full bg-[color:var(--surface)]">
+              {lang === "zh" ? "查看详情" : "Details"}
+            </Button>
+          )}
           {isConfirmed ? (
             <Button asChild variant="secondary" className="h-11 rounded-full">
-              <Link to={`/app/booking/new?packageId=${encodeURIComponent(booking.packageId)}`}>{lang === "zh" ? "改期" : "Reschedule"}</Link>
+              <Link to={order ? `/app/booking/new?shootOrderId=${encodeURIComponent(order.id)}` : `/app/booking/new?packageId=${encodeURIComponent(booking.packageId)}`}>
+                {lang === "zh" ? "改期" : "Reschedule"}
+              </Link>
             </Button>
           ) : null}
         </div>
